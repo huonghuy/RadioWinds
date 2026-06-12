@@ -16,7 +16,7 @@ Setup (one time):
   4. On the ERA5 dataset page, scroll to the bottom of the download form and
      ACCEPT the Terms of Use once. Requests fail without this.
 
-Then just run:  python download_era5.py
+Then just run:  python3 -m CopernicusDownload.py
 """
 
 import os

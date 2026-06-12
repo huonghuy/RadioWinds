@@ -28,7 +28,7 @@ class ERA5:
         if hasattr(self.file, 'variables') and 'plev' in self.file.variables or hasattr(self.file,
                                                                                         'dims') and 'plev' in self.file.dims:
             print("FIXING LON")
-            self.ds = self.ds.assign_coords(lon=self.ds.lon - 360)
+            self.ds = self.ds.assign_coords(lon=((self.ds.lon + 180) % 360) - 180).sortby("lon")
             print(self.ds)
         else:
             print("'plev' is not found in the dataset!")
@@ -52,7 +52,7 @@ class ERA5:
         # Convert from epoch to human readable time. Different than GFS for now.
         self.time_convert = netCDF4.num2date(time_arr[:], time_arr.units, time_arr.calendar)
 
-        netcdf_ranges = self.file.variables['u'][0, 0, :, :]
+        netcdf_ranges = self.file.variables['u'][0, :, :, :]
         self.determineRanges(netcdf_ranges)
 
         # smaller array of downloaded forecast subset
@@ -117,6 +117,10 @@ class ERA5:
             self.lon_min_idx = 0
 
     def get_station(self, time, lat, lon):
+        t = pd.to_datetime(time)
+        tmin, tmax = pd.to_datetime(self.ds.time.min().values), pd.to_datetime(self.ds.time.max().values)
+        if not (tmin <= t <= tmax):
+            raise ValueError(f"{t} is outside file range {tmin}–{tmax}")
         if hasattr(self.file, 'variables') and 'plev' in self.file.variables or hasattr(self.file,
                                                                                         'dims') and 'plev' in self.file.dims:
             station_ds = self.ds.sel(time=time, lon=lon, lat=lat, method="nearest")
@@ -135,7 +139,7 @@ class ERA5:
         df = pd.DataFrame()
 
         df['height'] = station.z / g
-        df['time'] = time
+        df['time'] = pd.to_datetime(station.time.values)
         df['u_wind'] = station.u * 1  # put in same as radiosonde format,  blowing from?
         df['v_wind'] = station.v * 1  # put in same as radiosonde format,  blowing from?
         df['speed'] = (df['u_wind'] ** 2 + df['v_wind'] ** 2) ** 0.5
@@ -153,11 +157,11 @@ class ERA5:
 
 # An Example
 if __name__=="__main__":
-    time = date = '2022-12-18  00:00:00'
+    time = date = '2023-01-01  00:00:00'
 
     #PHTO
-    lat = 19.72
-    lon = -155
+    lat = 19.72 #between    0 ->  70
+    lon = -155  #between -180 -> -45
 
     era5 = ERA5()
     #era5.import_forecast("forecasts/" + "western_hemisphere-08-08-23.nc")

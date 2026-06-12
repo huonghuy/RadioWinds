@@ -198,11 +198,9 @@ Note: ERA5 forecasts may need to be downloaded in batches depending on the regio
 The copernicus server does not support downloads over 10 gigs.
 
 Option 1 is to do 2 different regions at a time. For instance North America, and then South America. This is what I've been doing
+This can be done via CopernicusDownload.py. Follow instructions there
 
 Option 2 is to partially download the region of interest then combine files.
-
-Note: (2023) If using NetCDF4 (Experimental), download in Quarters (Jan-Mar, Apr-Jun, Jul-Sep, Oct-Dec) due to rate limit
-(2024) 24 Download files, split time
 
 Download a netcdf ERA5 forecast from https://cds.climate.copernicus.eu/cdsapp#!/dataset/reanalysis-era5-pressure-levels?tab=form
 which includes the right timestamp, geographic region, pressure levels [300-10hPa], 

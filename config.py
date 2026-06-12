@@ -20,6 +20,7 @@ start_year = 2025
 end_year = 2025
 
 monthly_export_color = True
+monthly_export_color = True
 annual_export_color = True
 dfi_mode = "chrome"  # Default is "chrome" for Windows 11 and Ubuntu, WSL2 prefers "selenium"
 
