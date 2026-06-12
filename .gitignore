@@ -177,3 +177,8 @@ cython_debug/
 #Copernicus Key File
 .cdsapirc
 era5_data/
+
+CLAUDE.md
+.claude
+.rtk/
+.codegraph/

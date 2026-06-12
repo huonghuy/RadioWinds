@@ -4,8 +4,8 @@ import os
 # **************** DOWNLOAD AND ANALYSIS ************************
 
 type = "ALT"                    # ALT or PRES
-mode = "radiosonde"             # radiosonde or era5
-continent = "All"               # 'all' will download every continent
+mode = "era5"             # radiosonde or era5
+continent = "North_America"               # 'all' will download every continent
                                 # Or you can do one at a time N: orth America, South America, 
                                 # Europe, Asia, Africa, Australia, Antarctica
                                 # May run into rate limits
@@ -16,10 +16,10 @@ mapping_mode = "diff"           # mode or diff
 parallelize = True #True         # It's recommended to change logging to False if parallelize is True.
 logging = False                  # Displays extra debugging and status text in the Terminal
 
-start_year = 2023
+start_year = 2025
 end_year = 2025
 
-monthly_export_color = False
+monthly_export_color = True
 annual_export_color = True
 dfi_mode = "chrome"  # Default is "chrome" for Windows 11 and Ubuntu, WSL2 prefers "selenium"
 
@@ -58,10 +58,11 @@ g = 9.80665
 
 
 # ************************ ERA5 **********************************
-combined = False
+combined = True
+era_file = f"/srv/shared/ERA5_PRES/{start_year}/era5_{start_year}_complete.nc"
 #era_file = "forecasts/" + "western_hemisphere-2022-North.nc"
 #era_file = "../../../../mnt/d/cds_api/" + "2023-ERA5-Complete.nc"
-era_file = "../../../../mnt/d/FORECASTS/" + "2023-ERA5-North.nc"
+#era_file = "../../../../mnt/d/FORECASTS/" + "2023-ERA5-North.nc"
 #era_file = "../../../../mnt/d/cds_api/" + "2022-ERA5-Complete-Mini.nc"
 #era_file = "../../../../mnt/d/FORECASTS/" + "optimized_ERA5-2022-WH.nc"
 
