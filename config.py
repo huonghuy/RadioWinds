@@ -16,7 +16,7 @@ mapping_mode = "diff"           # mode or diff
 parallelize = True #True         # It's recommended to change logging to False if parallelize is True.
 logging = False                  # Displays extra debugging and status text in the Terminal
 
-start_year = 2023
+start_year = 2012
 end_year = 2025
 
 monthly_export_color = False
