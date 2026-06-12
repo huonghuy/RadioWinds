@@ -60,7 +60,6 @@ g = 9.80665
 
 # ************************ ERA5 **********************************
 combined = True
-era_file = f"/srv/shared/ERA5_PRES/{start_year}/era5_{start_year}_complete.nc"
 #era_file = "forecasts/" + "western_hemisphere-2022-North.nc"
 #era_file = "../../../../mnt/d/cds_api/" + "2023-ERA5-Complete.nc"
 #era_file = "../../../../mnt/d/FORECASTS/" + "2023-ERA5-North.nc"
