@@ -31,7 +31,7 @@ then parsing into individual flights .csv's).
         or incompletely downloaded months.
 
 Make sure to set the following variables in config before running:
-* base_directory
+* parent_dir
 * parent_folder
 * continent
 * parallelize
