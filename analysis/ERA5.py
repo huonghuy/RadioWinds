@@ -52,7 +52,7 @@ class ERA5:
         # Convert from epoch to human readable time. Different than GFS for now.
         self.time_convert = netCDF4.num2date(time_arr[:], time_arr.units, time_arr.calendar)
 
-        netcdf_ranges = self.file.variables['u'][0, :, :, :]
+        netcdf_ranges = self.file.variables['u'][0, 0, :, :]
         self.determineRanges(netcdf_ranges)
 
         # smaller array of downloaded forecast subset
@@ -117,10 +117,6 @@ class ERA5:
             self.lon_min_idx = 0
 
     def get_station(self, time, lat, lon):
-        t = pd.to_datetime(time)
-        tmin, tmax = pd.to_datetime(self.ds.time.min().values), pd.to_datetime(self.ds.time.max().values)
-        if not (tmin <= t <= tmax):
-            raise ValueError(f"{t} is outside file range {tmin}–{tmax}")
         if hasattr(self.file, 'variables') and 'plev' in self.file.variables or hasattr(self.file,
                                                                                         'dims') and 'plev' in self.file.dims:
             station_ds = self.ds.sel(time=time, lon=lon, lat=lat, method="nearest")
@@ -139,7 +135,7 @@ class ERA5:
         df = pd.DataFrame()
 
         df['height'] = station.z / g
-        df['time'] = pd.to_datetime(station.time.values)
+        df['time'] = time
         df['u_wind'] = station.u * 1  # put in same as radiosonde format,  blowing from?
         df['v_wind'] = station.v * 1  # put in same as radiosonde format,  blowing from?
         df['speed'] = (df['u_wind'] ** 2 + df['v_wind'] ** 2) ** 0.5

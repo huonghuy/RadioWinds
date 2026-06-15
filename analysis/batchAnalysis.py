@@ -12,7 +12,7 @@ import copy
 import config
 import utils
 from analysis import opposing_wind_wyoming
-from analysis import ERA5
+from analysis.ERA5 import ERA5
 
 """
 

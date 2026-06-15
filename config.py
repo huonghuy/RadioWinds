@@ -3,13 +3,13 @@ import os
 
 # **************** DOWNLOAD AND ANALYSIS ************************
 
-type = "ALT"                    # ALT or PRES
-mode = "radiosonde"             # radiosonde or era5
-continent = "All"               # 'all' will download every continent
+type = "PRES"                    # ALT or PRES
+mode = "era5"             # radiosonde or era5
+continent = "North_America"               # 'all' will download every continent
                                 # Or you can do one at a time N: orth America, South America, 
                                 # Europe, Asia, Africa, Australia, Antarctica
                                 # May run into rate limits
-mapping_mode = "diff"           # mode or diff
+mapping_mode = mode           # mode or diff
 
 # Multithreading can be finicky and run out of memory on Windows (it also seems slower)
 # I have no memory issues on WSL or Ubuntu.
@@ -17,7 +17,7 @@ parallelize = True #True         # It's recommended to change logging to False i
 logging = False                  # Displays extra debugging and status text in the Terminal
 
 start_year = 2023
-end_year = 2025
+end_year = 2023
 
 monthly_export_color = True
 annual_export_color = True
@@ -58,7 +58,8 @@ g = 9.80665
 
 
 # ************************ ERA5 **********************************
-combined = True
+combined = False
+era_file = "/srv/shared/FORECASTS/2023-ERA5-NORTH.nc"
 #era_file = "forecasts/" + "western_hemisphere-2022-North.nc"
 #era_file = "../../../../mnt/d/cds_api/" + "2023-ERA5-Complete.nc"
 #era_file = "../../../../mnt/d/FORECASTS/" + "2023-ERA5-North.nc"
