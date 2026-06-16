@@ -32,6 +32,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import netCDF4
 from geographiclib.geodesic import Geodesic
 from pytz import timezone
@@ -76,7 +77,7 @@ def _raise_if_v1(file: netCDF4.Dataset, path: str) -> None:
         f"{path}: detected {legacy}; EarthSHAB v2.0+ requires the canonical "
         "schema documented in docs/source/forecast-schema-v2.md. Convert this file "
         "in place with:\n"
-        f"    python -m EarthSHAB.forecast_processing.migrate_v1 {path}\n"
+        f"    python -m forecast_processing.migrate_v1 {path}\n"
         "The original will be backed up alongside it as <name>.v1.nc. "
         "See docs/source/migration-v2.md for details."
     )
@@ -139,7 +140,70 @@ class Forecast:
         self.dt = config_earth.simulation['dt']
         self.sim_time = config_earth.simulation['sim_time']
 
-        forecast_path = config_earth.forecast['file']
+        self._load(config_earth.forecast['file'])
+
+        self.start_coord = config_earth.simulation["start_coord"]
+        self.start_time = config_earth.simulation['start_time']
+        self.min_alt_m = self.start_coord['alt']
+
+        # Guard against a silent config/file resolution mismatch. `res` selects
+        # the GFS forecast *filename* (config_earth.forecast['file']), so a stale
+        # `res` can quietly load a different grid than intended — the sim still
+        # runs, but on the wrong data, producing a different trajectory. Require
+        # the file's actual spacing to match the declared netcdf_gfs['res'] so
+        # the two cannot drift apart. (ERA5 resolution is not governed by this
+        # config key, so the check is scoped to GFS-sourced files.)
+        if self.source == "GFS" and self.resolution_deg is not None:
+            declared_res = config_earth.netcdf_gfs.get("res")
+            if declared_res is not None and abs(self.resolution_deg - float(declared_res)) > 1e-3:
+                raise ValueError(
+                    f"Forecast resolution mismatch: config_earth.netcdf_gfs['res']="
+                    f"{declared_res}° but the loaded file is a {self.resolution_deg:g}° grid.\n"
+                    f"  file: {self.forecast_path}\n"
+                    f"`res` selects the GFS forecast filename, so this usually means it "
+                    f"points at the wrong file. Set res = {self.resolution_deg:g} to use "
+                    f"this file, or point config_earth.forecast['file'] at the "
+                    f"{declared_res}° forecast."
+                )
+
+        # Check requested simulation window fits inside the forecast.
+        desired_simulation_end_time = self.start_time + timedelta(hours=self.sim_time)
+        diff_time = (self.model_end_datetime - self.start_time).total_seconds()
+        print("Sim start time: ", self.start_time)
+        print("NetCDF end time:", self.model_end_datetime)
+        print("Max sim runtime:", diff_time // 3600, "hours")
+        print("Des sim runtime:", self.sim_time, "hours")
+        print()
+
+        if not desired_simulation_end_time <= self.model_end_datetime:
+            print(colored(
+                f"Desired simulation run time of {self.sim_time} hours is out of "
+                "bounds of downloaded forecast. Check simulation start time "
+                "and/or download a new forecast.", "red"))
+            sys.exit()
+
+    @classmethod
+    def from_file(cls, filepath):
+        """Construct a reader for vertical-profile analysis (no simulation config).
+
+        Used by the windrose/statistics batch scripts, which only need to read
+        wind profiles out of a file — they don't run a balloon trajectory and
+        therefore don't populate ``config_earth.simulation``. This replaces the
+        legacy ``ERA5().import_forecast(path)`` two-step construction.
+        """
+        self = cls.__new__(cls)
+        self._load(filepath)
+        return self
+
+    def _load(self, forecast_path):
+        """Open a v2 canonical forecast file and load its arrays/bounds.
+
+        Shared by both ``__init__`` (trajectory simulation) and ``from_file``
+        (profile analysis). Sets ``self.file``, ``self.source``, the lat/lon/
+        level/u/v/hgtprs arrays, ``self.time_convert`` and the spatial/temporal
+        bounds; does not read any simulation-specific config.
+        """
+        self.forecast_path = forecast_path
         try:
             self.file = netCDF4.Dataset(forecast_path)
         except OSError:
@@ -150,9 +214,6 @@ class Forecast:
         self.source = _detect_source(self.file, forecast_path)
 
         self.geod = Geodesic.WGS84
-        self.start_coord = config_earth.simulation["start_coord"]
-        self.start_time = config_earth.simulation['start_time']
-        self.min_alt_m = self.start_coord['alt']
 
         time_arr = self.file.variables['valid_time']
         time_units = time_arr.units if hasattr(time_arr, 'units') else "seconds since 1970-01-01"
@@ -201,41 +262,74 @@ class Forecast:
         print(f"  cadence:   {self.resolution_hr:.2f} hr")
         print()
 
-        # Guard against a silent config/file resolution mismatch. `res` selects
-        # the GFS forecast *filename* (config_earth.forecast['file']), so a stale
-        # `res` can quietly load a different grid than intended — the sim still
-        # runs, but on the wrong data, producing a different trajectory. Require
-        # the file's actual spacing to match the declared netcdf_gfs['res'] so
-        # the two cannot drift apart. (ERA5 resolution is not governed by this
-        # config key, so the check is scoped to GFS-sourced files.)
-        if self.source == "GFS" and self.resolution_deg is not None:
-            declared_res = config_earth.netcdf_gfs.get("res")
-            if declared_res is not None and abs(self.resolution_deg - float(declared_res)) > 1e-3:
-                raise ValueError(
-                    f"Forecast resolution mismatch: config_earth.netcdf_gfs['res']="
-                    f"{declared_res}° but the loaded file is a {self.resolution_deg:g}° grid.\n"
-                    f"  file: {forecast_path}\n"
-                    f"`res` selects the GFS forecast filename, so this usually means it "
-                    f"points at the wrong file. Set res = {self.resolution_deg:g} to use "
-                    f"this file, or point config_earth.forecast['file'] at the "
-                    f"{declared_res}° forecast."
-                )
+    # ------------------------------------------------------------------
+    # Profile analysis API (legacy ERA5.py replacement)
+    # ------------------------------------------------------------------
 
-        # Check requested simulation window fits inside the forecast.
-        desired_simulation_end_time = self.start_time + timedelta(hours=self.sim_time)
-        diff_time = (self.model_end_datetime - self.start_time).total_seconds()
-        print("Sim start time: ", self.start_time)
-        print("NetCDF end time:", self.model_end_datetime)
-        print("Max sim runtime:", diff_time // 3600, "hours")
-        print("Des sim runtime:", self.sim_time, "hours")
+    def get_statistics(self):
+        """Return ``(start_datetime, end_datetime)`` of the loaded forecast.
+
+        Legacy ERA5-compatible entry point used by the batch analysis scripts.
+        v2 files are tight bounding-box subsets with no masked padding, so the
+        valid time range is simply the first and last stored timestamps (the
+        lat/lon bounds are already computed and printed in ``_load``).
+        """
+        start_datetime = self.time_convert[0]
+        end_datetime = self.time_convert[-1]
+        print(colored("Forecast time range:", "blue", attrs=['bold']))
+        print(f"  start: {start_datetime}")
+        print(f"  end:   {end_datetime}")
         print()
+        return start_datetime, end_datetime
 
-        if not desired_simulation_end_time <= self.model_end_datetime:
-            print(colored(
-                f"Desired simulation run time of {self.sim_time} hours is out of "
-                "bounds of downloaded forecast. Check simulation start time "
-                "and/or download a new forecast.", "red"))
-            sys.exit()
+    def _nearest_time_idx(self, time):
+        """Index of the stored timestamp closest to ``time``.
+
+        Batch scripts iterate over ``self.time_convert`` and pass elements back
+        in, so this is usually an exact hit; the nearest-match fallback keeps it
+        robust to datetime/cftime type differences.
+        """
+        target = pd.to_datetime(str(time))
+        times = pd.to_datetime([str(t) for t in self.time_convert])
+        return int(np.argmin(np.abs((times - target).total_seconds())))
+
+    def get_station(self, time, lat, lon):
+        """Vertical wind profile at the grid point nearest ``(lat, lon)`` and ``time``.
+
+        Returns a DataFrame matching the legacy ``ERA5.get_station`` output so the
+        batch analysis scripts work unchanged. Columns:
+
+            height    geopotential height (m), ascending
+            time      the forecast timestamp (repeated per row)
+            u_wind    zonal wind (m/s)
+            v_wind    meridional wind (m/s)
+            speed     wind speed (m/s)
+            direction meteorological direction (deg), per the ERA5 convention
+            pressure  pressure level (hPa)
+        """
+        t_idx = self._nearest_time_idx(time)
+        lat_idx = self.getNearestLatIdx(lat)
+        lon_idx = self.getNearestLonIdx(lon)
+
+        u = np.asarray(self.ugdrps0[t_idx, :, lat_idx, lon_idx], dtype=float)
+        v = np.asarray(self.vgdrps0[t_idx, :, lat_idx, lon_idx], dtype=float)
+        height = np.asarray(self.hgtprs[t_idx, :, lat_idx, lon_idx], dtype=float)
+        pressure = np.asarray(self.levels, dtype=float)
+
+        df = pd.DataFrame({
+            'height': height,
+            'time': pd.to_datetime(str(self.time_convert[t_idx])),
+            'u_wind': u,
+            'v_wind': v,
+            'pressure': pressure,
+        })
+        df['speed'] = (df['u_wind'] ** 2 + df['v_wind'] ** 2) ** 0.5
+        df['direction'] = (90 - np.rad2deg(np.arctan2(df['v_wind'], df['u_wind']))) % 360
+        # Altitude ascending. v2 levels are stored descending in pressure (so
+        # already ascending in height), but sort explicitly so callers don't
+        # depend on file ordering.
+        df = df.sort_values('height').reset_index(drop=True)
+        return df
 
     # ------------------------------------------------------------------
     # Nearest-index helpers

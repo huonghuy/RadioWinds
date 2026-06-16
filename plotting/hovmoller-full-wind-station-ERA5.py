@@ -160,7 +160,7 @@ def plot_hovmoller_wind_direction(nc_file, lat, lon):
 
 
 # Example usage
-nc_file = config.era_file # Replace with the actual NetCDF file path
+nc_file = config.forecast['file'] # Replace with the actual NetCDF file path
 #lat = 40.76  # Replace with desired latitude
 #lon = -111.9  # Replace with desired longitude
 

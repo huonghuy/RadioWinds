@@ -11,7 +11,7 @@ from multiprocessing import Process, Manager
 import config
 import utils
 from analysis import opposing_wind_wyoming
-from analysis  import ERA5
+from analysis.Forecast import Forecast
 
 """
 
@@ -325,9 +325,8 @@ if __name__ == "__main__":
     era5 = None # Is this right? Keep as None for now when not using era5 forecast
 
     if config.mode == "era5":
-        #Initialize ERA5
-        era5 = ERA5()
-        era5.import_forecast(config.era_file)
+        #Initialize forecast reader (handles both GFS- and ERA5-sourced files)
+        era5 = Forecast.from_file(config.forecast['file'])
         start_datetime, end_datetime = era5.get_statistics()
 
         if start_datetime != datetime(config.start_year, 1, 1, 00):

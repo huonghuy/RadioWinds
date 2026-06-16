@@ -8,27 +8,26 @@ from datetime import datetime, timedelta
 
 type = "ALT"                    # ALT or PRES
 mode = "era5"             # radiosonde or era5
-continent = "North_America"               # 'all' will download every continent
-                                # Or you can do one at a time N: orth America, South America, 
+continent = "Test"               # 'all' will download every continent
+                                # Or you can do one at a time: North America, South America, 
                                 # Europe, Asia, Africa, Australia, Antarctica
                                 # May run into rate limits
-mapping_mode = "diff"           # mode or diff
+mapping_mode = mode           # mode or diff
 
 # Multithreading can be finicky and run out of memory on Windows (it also seems slower)
 # I have no memory issues on WSL or Ubuntu.
-parallelize = True #True         # It's recommended to change logging to False if parallelize is True.
+parallelize = False #True         # It's recommended to change logging to False if parallelize is True.
 logging = False                  # Displays extra debugging and status text in the Terminal
 
-start_year = 2025
-end_year = 2025
+start_year = 2022
+end_year = 2022
 
-monthly_export_color = True
 monthly_export_color = True
 annual_export_color = True
 dfi_mode = "chrome"  # Default is "chrome" for Windows 11 and Ubuntu, WSL2 prefers "selenium"
 
 alt_step = 500                  # m
-min_alt = 0               # m
+min_alt = 15000               # m
 max_alt = 28000 + alt_step-1    # m  The +alt_step -1 is to include all data points above the max - the next step size.
 n_sectors = 16                  # m
 speed_threshold = 4             # knots for Radiosonde,  m/s for ERA5
@@ -83,7 +82,13 @@ _default_gfs_file = (
 )
 
 forecast = dict(
-    file = _default_gfs_file,
+    #file = "/srv/shared/ERA5_PRES/2023/era5_2023_complete.nc", #_default_gfs_file, #change this if you want era5
+    file = "/srv/shared/ERA5_COMP/2022/2022-ERA5-Complete.nc",
+    #era_file = "forecasts/" + "western_hemisphere-2022-North.nc"
+    #era_file = "../../../../mnt/d/cds_api/" + "2023-ERA5-Complete.nc"
+    #era_file = "../../../../mnt/d/FORECASTS/" + "2023-ERA5-North.nc"
+    #era_file = "../../../../mnt/d/cds_api/" + "2022-ERA5-Complete-Mini.nc"
+    #era_file = "../../../../mnt/d/FORECASTS/" + "optimized_ERA5-2022-WH.nc"
     forecast_start_time = forecast_start_time, # used to build the default file path above
     GFSrate = 60,               # (s) After how many iterated dt steps are new wind speeds are looked up
 
@@ -123,11 +128,6 @@ g = 9.80665
 
 # ************************ ERA5 **********************************
 combined = False
-#era_file = "forecasts/" + "western_hemisphere-2022-North.nc"
-#era_file = "../../../../mnt/d/cds_api/" + "2023-ERA5-Complete.nc"
-#era_file = "../../../../mnt/d/FORECASTS/" + "2023-ERA5-North.nc"
-#era_file = "../../../../mnt/d/cds_api/" + "2022-ERA5-Complete-Mini.nc"
-#era_file = "../../../../mnt/d/FORECASTS/" + "optimized_ERA5-2022-WH.nc"
 
 # Mandatory pressure levels downloaded from ERA5  (~9.5km - 31km?)
 era5_pressure_levels = np.asarray([300, 250, 225, 200, 175, 150, 125, 100, 70, 50,  30,  20, 10])
