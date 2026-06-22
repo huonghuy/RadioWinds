@@ -40,7 +40,7 @@ from scipy import interpolate
 from scipy.interpolate import CubicSpline
 from termcolor import colored
 
-import config as config_earth
+import config
 
 
 class ForecastFormatError(ValueError):
@@ -137,32 +137,32 @@ class Forecast:
     """Reader for v2 canonical forecast files (GFS- or ERA5-sourced)."""
 
     def __init__(self, start_coord):
-        self.dt = config_earth.simulation['dt']
-        self.sim_time = config_earth.simulation['sim_time']
+        self.dt = config.simulation['dt']
+        self.sim_time = config.simulation['sim_time']
 
-        self._load(config_earth.forecast['file'])
+        self._load(config.forecast['file'])
 
-        self.start_coord = config_earth.simulation["start_coord"]
-        self.start_time = config_earth.simulation['start_time']
+        self.start_coord = config.simulation["start_coord"]
+        self.start_time = config.simulation['start_time']
         self.min_alt_m = self.start_coord['alt']
 
         # Guard against a silent config/file resolution mismatch. `res` selects
-        # the GFS forecast *filename* (config_earth.forecast['file']), so a stale
+        # the GFS forecast *filename* (config.forecast['file']), so a stale
         # `res` can quietly load a different grid than intended — the sim still
         # runs, but on the wrong data, producing a different trajectory. Require
         # the file's actual spacing to match the declared netcdf_gfs['res'] so
         # the two cannot drift apart. (ERA5 resolution is not governed by this
         # config key, so the check is scoped to GFS-sourced files.)
         if self.source == "GFS" and self.resolution_deg is not None:
-            declared_res = config_earth.netcdf_gfs.get("res")
+            declared_res = config.netcdf_gfs.get("res")
             if declared_res is not None and abs(self.resolution_deg - float(declared_res)) > 1e-3:
                 raise ValueError(
-                    f"Forecast resolution mismatch: config_earth.netcdf_gfs['res']="
+                    f"Forecast resolution mismatch: config.netcdf_gfs['res']="
                     f"{declared_res}° but the loaded file is a {self.resolution_deg:g}° grid.\n"
                     f"  file: {self.forecast_path}\n"
                     f"`res` selects the GFS forecast filename, so this usually means it "
                     f"points at the wrong file. Set res = {self.resolution_deg:g} to use "
-                    f"this file, or point config_earth.forecast['file'] at the "
+                    f"this file, or point config.forecast['file'] at the "
                     f"{declared_res}° forecast."
                 )
 
@@ -188,7 +188,7 @@ class Forecast:
 
         Used by the windrose/statistics batch scripts, which only need to read
         wind profiles out of a file — they don't run a balloon trajectory and
-        therefore don't populate ``config_earth.simulation``. This replaces the
+        therefore don't populate ``config.simulation``. This replaces the
         legacy ``ERA5().import_forecast(path)`` two-step construction.
         """
         self = cls.__new__(cls)
@@ -453,7 +453,7 @@ class Forecast:
         .. image:: ../../img/netcdf-2step-interpolation.png
 
         The altitude step uses the method selected by
-        ``config_earth.forecast['wind_interpolation']`` (``linear_neighbors``,
+        ``config.forecast['wind_interpolation']`` (``linear_neighbors``,
         ``linear_full``, or ``spline_full``); see :doc:`wind_interpolation`.
 
         Returns ``[u, v, u_diag, v_diag]`` where ``(u_diag, v_diag)`` is always
@@ -487,7 +487,7 @@ class Forecast:
         u_lf = np.interp(hour_index, fp, [u0_lf, u1_lf])
         v_lf = np.interp(hour_index, fp, [v0_lf, v1_lf])
 
-        method = config_earth.forecast.get('wind_interpolation', 'linear_neighbors')
+        method = config.forecast.get('wind_interpolation', 'linear_neighbors')
         if method == 'linear_neighbors':
             bearing_t0, speed_t0 = self.interpolateBearing(h0, u_0, v_0, alt_m)
             bearing_t1, speed_t1 = self.interpolateBearing(h1, u_1, v_1, alt_m)

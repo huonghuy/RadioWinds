@@ -6,7 +6,7 @@ import os
 from os import listdir
 import sys
 import traceback
-from multiprocessing import Process
+import multiprocessing
 import copy
 
 # RadioWinds Imports
@@ -406,7 +406,26 @@ def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
                                     export_color=config.annual_export_color)
 
 
-def batch_analysis(era5, year, WMO, FAA, lat, lon, min_alt, max_alt,
+# Per-process Forecast handle, set once per worker by init_worker (era5 mode only).
+# batch_analysis reads this instead of receiving the heavy Forecast object as a task
+# arg, which would be re-pickled to every worker under the spawn start method (and
+# copied per-task under fork).
+_WORKER_FORECAST = None
+
+
+def _init_worker(forecast_path):
+    """ProcessPoolExecutor initializer: open the Forecast once per worker process.
+
+    Loading per process (not per task) avoids re-reading the whole year's u/v/z
+    arrays from disk for every station. In radiosonde mode ``forecast_path`` is
+    None and this is a no-op. In sequential mode the parent sets the global itself.
+    """
+    global _WORKER_FORECAST
+    if forecast_path is not None:
+        _WORKER_FORECAST = Forecast.from_file(forecast_path)
+
+
+def batch_analysis(year, WMO, FAA, lat, lon, min_alt, max_alt,
             min_pressure, max_pressure, alt_step, n_sectors, speed_threshold):
     """
         Schedule the batch analysis
@@ -414,9 +433,12 @@ def batch_analysis(era5, year, WMO, FAA, lat, lon, min_alt, max_alt,
         1. Analyze all the individual probabilities in a [month] for a [station] in a given [year]
             1a. Export the monthly probabilities
         2. Generate the annual probabilty table from the average [month] wind probabilities
+
+        In era5 mode the forecast is read from the per-process global _WORKER_FORECAST
+        (set by _init_worker), not passed in.
     """
     if config.mode == "era5":
-        monthly_analyzed_status = anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year,
+        monthly_analyzed_status = anaylze_monthly_data_era5(_WORKER_FORECAST, lat, lon, FAA, WMO, year,
                                                            min_alt, max_alt, min_pressure, max_pressure,
                                                            alt_step, n_sectors, speed_threshold)
 
@@ -438,71 +460,60 @@ def batch_analysis(era5, year, WMO, FAA, lat, lon, min_alt, max_alt,
     print()
 
 
-def _run_batch_analysis(station_label, era5, year, WMO, FAA, lat, lon, min_alt, max_alt,
+def _run_batch_analysis(station_label, year, WMO, FAA, lat, lon, min_alt, max_alt,
                         min_pressure, max_pressure, alt_step, n_sectors, speed_threshold):
     """
     Worker entry point for parallel runs.
 
-    Wraps batch_analysis so that any exception raised inside a child process is
-    surfaced (printed with station context + full traceback) and turned into a
-    non-zero exit code, instead of vanishing silently and letting the parent's
-    p.join() treat a dead worker as a successful one.
+    Wraps batch_analysis so a failure inside a child process is surfaced (station
+    context + full traceback) and then re-raised, so run_parallel_analysis records
+    it as a failed task instead of it vanishing silently.
     """
     try:
-        batch_analysis(era5, year, WMO, FAA, lat, lon, min_alt, max_alt,
+        batch_analysis(year, WMO, FAA, lat, lon, min_alt, max_alt,
                        min_pressure, max_pressure, alt_step, n_sectors, speed_threshold)
     except Exception:
         print(colored(
             "WORKER FAILED for Station " + station_label + " Year-" + str(year) + ":\n" +
             traceback.format_exc(),
             "red"))
-        sys.exit(1)
+        raise
 
 
-def parallelize(era5, stations_df, year,min_alt,max_alt,min_pressure,max_pressure,alt_step,n_sectors,speed_threshold):
+def parallelize(forecast_path, stations_df, year, min_alt, max_alt, min_pressure,
+                max_pressure, alt_step, n_sectors, speed_threshold):
     """
-    Parrallelize the analysis process.  Each station download goes on it's own process.
-    Activating this functionality makes the analysis much faster.
-    If debugging new/added features, don't use parallelize.
+    Run batch_analysis for every station via the shared bounded process pool
+    (utils.run_parallel_analysis). Per-station isolation means a crash is contained
+    and reported, not silently treated as success.
+
+    era5 forecast loading is start-method dependent, to avoid exhausting RAM:
+      * fork (Linux/WSL default): the parent already holds the forecast in the
+        _WORKER_FORECAST global, and forked children inherit it copy-on-write - one
+        shared, read-only copy across all workers. Loading per worker here instead
+        would create one full-year copy PER worker (e.g. a 22 GB file's arrays x N)
+        and thrash the machine into a lockup.
+      * spawn / forkserver (Win/macOS): children start a fresh interpreter with no
+        inherited globals, so each must open its own Forecast from forecast_path.
+    radiosonde mode passes forecast_path=None, so the initializer is a no-op anyway.
     """
+    tasks = []
+    for row in stations_df.itertuples(index=False):
+        station_label = str(row.FAA) + " - " + str(row.WMO)
+        tasks.append((station_label,
+                      (station_label, year, row.WMO, row.FAA, row.lat_era5, row.lon_era5,
+                       min_alt, max_alt, min_pressure, max_pressure, alt_step,
+                       n_sectors, speed_threshold)))
 
-    procs = []
-    try:
-        for row in stations_df.itertuples(index=False):
-            station_label = str(row.FAA) + " - " + str(row.WMO)
-            procs.append(Process(target=_run_batch_analysis,
-                                 args=(station_label, era5, year, row.WMO, row.FAA, row.lat_era5, row.lon_era5,
-                                       min_alt, max_alt, min_pressure, max_pressure, alt_step,
-                                       n_sectors, speed_threshold),
-                                 name=station_label))
+    if multiprocessing.get_start_method() == "fork":
+        # Children inherit _WORKER_FORECAST via copy-on-write; no per-worker reload.
+        initializer, initargs = None, ()
+    else:
+        initializer, initargs = _init_worker, (forecast_path,)
 
-        for p in procs: p.start()
-        for p in procs: p.join()
-
-        # Inspect exit codes so crashed / OOM-killed workers are reported instead of
-        # silently treated as successful. A negative exit code means the worker was
-        # killed by a signal (e.g. -9 = SIGKILL, typically the OOM killer).
-        failed = [(p.name, p.exitcode) for p in procs if p.exitcode != 0]
-        if failed:
-            print(colored(
-                "\n" + str(len(failed)) + " of " + str(len(procs)) +
-                " workers failed or were killed for Year-" + str(year) + ":",
-                "red"))
-            for name, code in failed:
-                reason = ("killed by signal " + str(-code)) if code < 0 else ("exited with code " + str(code))
-                print(colored("    " + name + " -> " + reason, "red"))
-        else:
-            print(colored(
-                "All " + str(len(procs)) + " workers completed successfully for Year-" + str(year) + ".",
-                "green"))
-
-        return failed
-
-    # If There's a keyboard interrupt, terminate multiprocessing in Python, and exit program
-    except KeyboardInterrupt:
-        print("Caught KeyboardInterrupt, terminating workers")
-        for p in procs: p.terminate()
-        sys.exit()
+    return utils.run_parallel_analysis(_run_batch_analysis, tasks,
+                                       num_workers=config.num_workers,
+                                       initializer=initializer, initargs=initargs)
 
 
 if __name__ == "__main__":
@@ -571,6 +582,19 @@ if __name__ == "__main__":
     n_sectors = config.n_sectors
     speed_threshold = config.speed_threshold
 
+    # ---- Forecast lifecycle ----
+    # Reuse the validated forecast as the SINGLE copy that workers / the sequential
+    # loop read, via the _WORKER_FORECAST global batch_analysis pulls from. Under
+    # fork (Linux/WSL default) the pool's children inherit this one object
+    # copy-on-write - a single shared, read-only copy. Loading it per worker would
+    # duplicate the full-year arrays N times (a 22 GB file x N) and lock up the box.
+    # Under spawn, parallelize() reloads per worker from forecast_path since children
+    # can't inherit globals. netCDF __del__ is unreliable, so it's closed explicitly
+    # after the run. (Stays None in radiosonde mode.)
+    forecast_path = config.forecast['file'] if config.mode == "era5" else None
+    if era5 is not None:
+        _WORKER_FORECAST = era5
+
     # DO THE WIND PROBABILTIES ANALYSIS
     for year in range(config.start_year, config.end_year + 1):
 
@@ -581,7 +605,7 @@ if __name__ == "__main__":
                 " in Parallel [Multiprocessing]========\n" +
                 "============================================================================================\n",
                 "cyan"))
-            parallelize(era5, stations_df, year=year,
+            parallelize(forecast_path, stations_df, year=year,
                         min_alt=config.min_alt,
                         max_alt=config.max_alt,
                         min_pressure=config.min_pressure,
@@ -598,7 +622,7 @@ if __name__ == "__main__":
                 "============================================================================================\n",
                 "cyan"))
             for row in stations_df.itertuples(index=False):
-                batch_analysis(era5, year,
+                batch_analysis(year,
                         WMO=row.WMO,
                         FAA=row.FAA,
                         lat=row.lat_era5,
@@ -610,3 +634,9 @@ if __name__ == "__main__":
                         alt_step=config.alt_step,
                         n_sectors=config.n_sectors,
                         speed_threshold=config.speed_threshold)
+
+    # Release the forecast now that every year has been analyzed. The parent holds
+    # the single copy in both sequential and fork-parallel modes (workers shared it
+    # copy-on-write and have since exited).
+    if _WORKER_FORECAST is not None:
+        _WORKER_FORECAST.close()

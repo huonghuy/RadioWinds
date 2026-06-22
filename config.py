@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 # **************** DOWNLOAD AND ANALYSIS ************************
 
 type = "ALT"                    # ALT or PRES
-mode = "radiosonde"             # radiosonde or era5
+mode = "era5"             # radiosonde or era5
 continent = "North_America"               # 'all' will download every continent
                                 # Or you can do one at a time: North America, South America, 
                                 # Europe, Asia, Africa, Australia, Antarctica
@@ -16,7 +16,7 @@ mapping_mode = mode           # mode or diff
 
 # Multiprocessing can be finicky and run out of memory on Windows (it also seems slower)
 # I have no memory issues on WSL or Ubuntu.
-parallelize = False #True         # It's recommended to change logging to False if parallelize is True.
+parallelize = True #True         # It's recommended to change logging to False if parallelize is True.
 logging = False                  # Displays extra debugging and status text in the Terminal
 
 # Number of worker processes used when parallelize=True. None => mode-dependent
@@ -53,12 +53,7 @@ max_pressure = 125 + 13
 # ******************** DIRECTORY SETUP **************************
 parent_dir = os.getcwd() + '/'  # The default is the RadioWinds directory
 
-# SHAB14-V Example for EarthSHAB software. Runs main.py against the bundled
-# SHAB14-V flight (GFS + APRS truth track) so the prediction can be compared to
-# the real trajectory; the same flight is registered in evaluation/launches.json
-# for the evaluation suite. To run a current-day prediction instead, set a recent
-# forecast_start_time (cycle hour 00/06/12/18 UTC), set balloon_trajectory = None,
-# and download the forecast first with `python -m EarthSHAB.saveNETCDF`.
+
 forecast_start_time =  "2022-08-22 12:00:00" # Forecast start time, should match a downloaded forecast in the forecasts directory
 start_time = datetime.fromisoformat("2022-08-22 14:22:35") # Simulation start time. The end time needs to be within the downloaded forecast
 #balloon_trajectory = parent_dir + "balloon_data/SHAB14V-APRS.csv"  # Don't need this for radiowinds
@@ -100,8 +95,8 @@ forecast = dict(
 
     #"""
     #file = "/srv/shared/ERA5_PRES/2023/era5_2023_complete.nc", #_default_gfs_file, #change this if you want era5
-    #file = "/srv/shared/ERA5_COMP/2022/2022-ERA5-Complete.nc",
-    file = "/srv/shared/SOUNDINGS_DATA/",
+    file = "/srv/shared/ERA5_COMP/2022/2022-ERA5-Complete.nc",
+    #file = "/srv/shared/SOUNDINGS_DATA/",
     #era_file = "forecasts/" + "western_hemisphere-2022-North.nc"
     #era_file = "../../../../mnt/d/cds_api/" + "2023-ERA5-Complete.nc"
     #era_file = "../../../../mnt/d/FORECASTS/" + "2023-ERA5-North.nc"
@@ -130,7 +125,7 @@ parent_folder = '/srv/shared/SOUNDINGS_DATA/' #parent_dir + 'SOUNDINGS_DATA/'
 # Best to Change the analysis folders depending on which type of analsis you're doing
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-Test2' + '/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-CALM' + '/'
-analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-FULL-NP' + '/'
+analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-FULL-P-Test' + '/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-BURST' + '/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-optimized-WH/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-Complete-lon-fix/'

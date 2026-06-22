@@ -5,7 +5,7 @@ import numpy as np
 import os
 from os import listdir
 import sys
-from multiprocessing import Process, Manager
+import traceback
 
 # RadioWinds Imports
 import config
@@ -252,7 +252,7 @@ def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
                                     export_color=config.annual_export_color)
 
 
-def batch_analysis(era5, year, WMO, FAA, lat, lon, min_alt, max_alt,
+def batch_analysis(year, WMO, FAA, lat, lon, min_alt, max_alt,
             min_pressure, max_pressure, alt_step, n_sectors, speed_threshold):
     """
         Schedule the batch analysis
@@ -283,33 +283,41 @@ def batch_analysis(era5, year, WMO, FAA, lat, lon, min_alt, max_alt,
     print()
 
 
-def parallelize(era5, stations_df, year,min_alt,max_alt,min_pressure,max_pressure,alt_step,n_sectors,speed_threshold):
+def _run_batch_analysis(station_label, year, WMO, FAA, lat, lon, min_alt, max_alt,
+                        min_pressure, max_pressure, alt_step, n_sectors, speed_threshold):
     """
-    Parrallelize the analysis process.  Each station download goes on it's own process.
-    Activating this functionality makes the analysis much faster.
-    If debugging new/added features, don't use parallelize.
+    Worker entry point for parallel runs. Surfaces a child-process failure (station
+    context + traceback) and re-raises so run_parallel_analysis records it as failed.
     """
-
     try:
-        queue = Manager().Queue()
-        procs = [Process(target=batch_analysis, args=(era5, year, row.WMO, row.FAA, row.lat_era5, row.lon_era5,
-                                               min_alt, max_alt, min_pressure, max_pressure, alt_step,
-                                               n_sectors,speed_threshold))
-                                               for row in stations_df.itertuples(index=False)]
-        for p in procs: p.start()
-        for p in procs: p.join()
+        batch_analysis(year, WMO, FAA, lat, lon, min_alt, max_alt,
+                       min_pressure, max_pressure, alt_step, n_sectors, speed_threshold)
+    except Exception:
+        print(colored(
+            "WORKER FAILED for Station " + station_label + " Year-" + str(year) + ":\n" +
+            traceback.format_exc(),
+            "red"))
+        raise
 
-        results = []
-        while not queue.empty():
-            results.append(queue.get)
 
-        return results
+def parallelize(stations_df, year, min_alt, max_alt, min_pressure, max_pressure,
+                alt_step, n_sectors, speed_threshold):
+    """
+    Run batch_analysis for every station via the shared bounded process pool
+    (utils.run_parallel_analysis). This variant is radiosonde-only, so workers read
+    their own per-station CSVs and need no forecast initializer. Per-station isolation
+    means a crash is contained and reported, not silently treated as success.
+    """
+    tasks = []
+    for row in stations_df.itertuples(index=False):
+        station_label = str(row.FAA) + " - " + str(row.WMO)
+        tasks.append((station_label,
+                      (station_label, year, row.WMO, row.FAA, row.lat_era5, row.lon_era5,
+                       min_alt, max_alt, min_pressure, max_pressure, alt_step,
+                       n_sectors, speed_threshold)))
 
-    # If There's a keyboard interrupt, terminate multiprocessing in Python, and exit program
-    except KeyboardInterrupt:
-        print("Caught KeyboardInterrupt, terminating workers")
-        for p in procs: p.terminate()
-        sys.exit()
+    return utils.run_parallel_analysis(_run_batch_analysis, tasks,
+                                       num_workers=config.num_workers)
 
 
 if __name__ == "__main__":
@@ -322,23 +330,13 @@ if __name__ == "__main__":
     # Check if ERA5 forecast date range matches config file
     # Maybe later check if The coordinates are right?
 
-    era5 = None # Is this right? Keep as None for now when not using era5 forecast
-
+    # This variant is radiosonde-only; ERA5 forecasts are not supported. Refuse the
+    # mode up front: the per-station batch_analysis would otherwise sys.exit() inside
+    # a pool worker, raising SystemExit, which the driver's "except Exception" can't
+    # catch.
     if config.mode == "era5":
-        #Initialize forecast reader (handles both GFS- and ERA5-sourced files)
-        era5 = Forecast.from_file(config.forecast['file'])
-        start_datetime, end_datetime = era5.get_statistics()
-
-        if start_datetime != datetime(config.start_year, 1, 1, 00):
-            print(colored("Dates mismatch for analysis. ERA5 start date is " + str(start_datetime) + ". Config file is " +
-                          str(datetime(config.start_year, 1, 1, 00)) , "red"))
-            sys.exit()
-
-        if end_datetime != datetime(config.end_year, 12, 31, 12):
-            print(colored(
-                "Dates mismatch for analysis. ERA5 start date is " + str(end_datetime) + ". Config file is " + str(
-                    datetime(config.end_year, 12, 31, 12)), "red"))
-            sys.exit()
+        print(colored("ERA5 mode is not supported by this variant (radiosonde only).", "red"))
+        sys.exit()
 
     stations_df['lat_era5'] = stations_df.apply(lambda x: (-1 * x['  LAT'] if x['N'] == 'S' else 1 * x['  LAT']), axis=1)
     stations_df['lon_era5'] = stations_df.apply(lambda x: (-1* x[' LONG'] if x['E'] == 'W' else 1 * x[' LONG']), axis=1)
@@ -364,7 +362,7 @@ if __name__ == "__main__":
                 " in Parallel [Multiprocessing]========\n" +
                 "============================================================================================\n",
                 "cyan"))
-            parallelize(era5, stations_df, year=year,
+            parallelize(stations_df, year=year,
                         min_alt=config.min_alt,
                         max_alt=config.max_alt,
                         min_pressure=config.min_pressure,
@@ -381,7 +379,7 @@ if __name__ == "__main__":
                 "============================================================================================\n",
                 "cyan"))
             for row in stations_df.itertuples(index=False):
-                batch_analysis(era5, year,
+                batch_analysis(year,
                         WMO=row.WMO,
                         FAA=row.FAA,
                         lat=row.lat_era5,
