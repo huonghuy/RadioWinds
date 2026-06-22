@@ -4,6 +4,8 @@ import dataframe_image as dfi
 from pathlib import Path
 import os
 import sys
+import tempfile
+import concurrent.futures
 from termcolor import colored
 import glob
 
@@ -131,11 +133,72 @@ def get_data_folder(FAA, WMO, year):
     return config.parent_folder + str(FAA) + " - " + str(WMO) + "/" + str(year) + "/"
 
 
+def _monthly_csv_path(FAA, WMO, year, month):
+    """Path of the monthly wind-probabilities CSV written by save_wind_probabilties.
+
+    Mirrors the suffix built there: ``{FAA} - {WMO}-{year}-{month}`` (month is the
+    plain integer 1-12, no zero-padding).
+    """
+    return os.path.join(get_analysis_folder(FAA, WMO, year),
+                        str(FAA) + " - " + str(WMO) + "-" + str(year) + "-" + str(month) + ".csv")
+
+
+def _done_sentinel_path(FAA, WMO, year):
+    """Path of the ``.done`` sentinel marking a fully-analyzed station-year."""
+    return os.path.join(get_analysis_folder(FAA, WMO, year), ".done")
+
+
+def missing_months(FAA, WMO, year):
+    """Months (1-12) that do not yet have a written monthly CSV.
+
+    Used by the resume logic so an interrupted station re-derives only the months
+    it never finished, rather than restarting all 12.
+    """
+    return [m for m in range(1, 13)
+            if not os.path.exists(_monthly_csv_path(FAA, WMO, year, m))]
+
+
+def monthly_complete(FAA, WMO, year):
+    """Whether a station-year's monthly analysis is complete.
+
+    Complete iff the ``.done`` sentinel exists OR all 12 monthly CSVs are present.
+    The 12-CSV fallback keeps pre-sentinel output (existing ``*_ANALYSIS_*`` dirs)
+    from being needlessly re-analyzed; the sentinel makes new runs unambiguous.
+    A half-finished folder (e.g. an interrupted / OOM-killed worker that wrote only
+    some months) is therefore NOT treated as done, so the next run resumes it.
+    """
+    if os.path.exists(_done_sentinel_path(FAA, WMO, year)):
+        return True
+    return len(missing_months(FAA, WMO, year)) == 0
+
+
+def mark_monthly_done(FAA, WMO, year):
+    """Write the ``.done`` sentinel once all 12 months are present.
+
+    Called after a station's full monthly set has been written so subsequent runs
+    skip it via monthly_complete without re-counting CSVs.
+    """
+    sentinel = _done_sentinel_path(FAA, WMO, year)
+    os.makedirs(os.path.dirname(sentinel), exist_ok=True)
+    with open(sentinel, "w") as f:
+        f.write("")
+
+
 def check_analyzed(FAA, WMO, year, path, category):
     """
-        Check if the radiosonde data has been downloaded yet
+        Check whether a station-year's <category> output already exists.
+
+        For the "monthly" category this is completeness-aware: the station counts
+        as analyzed only if its full monthly set is complete (see monthly_complete).
+        A half-finished folder is NOT treated as done, so the next run resumes it
+        instead of freezing partial output. All other categories (e.g. "annual")
+        fall back to plain path existence.
     """
-    isExist = os.path.exists(path)
+    if category == "monthly":
+        isExist = monthly_complete(FAA, WMO, year)
+    else:
+        isExist = os.path.exists(path)
+
     if not isExist:
         print(colored(str(FAA) + "-" + str(WMO) + "/" + str(
             year) + " " + category + " data not yet analyzed.", "yellow"))
@@ -144,6 +207,38 @@ def check_analyzed(FAA, WMO, year, path, category):
     print(colored(str(FAA) + "-" + str(WMO) + "/" + str(
         year) + " " + category + " data already analyzed.", "green"))
     return True
+
+
+def _atomic_write(final_path, write_fn, tmp_suffix=".tmp"):
+    """Write a file via a temp file in the same directory, then os.replace into place.
+
+    ``os.replace`` (rename(2)) is atomic on POSIX and Windows, so a crash mid-write
+    can never leave a half-written file at ``final_path``: readers (the annual
+    aggregation, the resume/completeness gate) always see either the complete old
+    file or the complete new one. The temp lives in the same directory so the rename
+    stays on one filesystem - a cross-device move would not be atomic.
+
+    ``write_fn`` is called with the temp path and must write the full file there.
+    ``tmp_suffix`` controls the temp file's extension: keep it OFF the final
+    extension for CSVs (so analyze_annual_data's ``*.csv`` scan ignores a stray temp)
+    but ON it for PNGs (dfi.export infers the image format from the extension).
+    """
+    final_path = Path(final_path)
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(final_path.parent),
+                               prefix="." + final_path.stem + ".",
+                               suffix=tmp_suffix)
+    os.close(fd)
+    try:
+        write_fn(tmp)
+        os.replace(tmp, final_path)
+    except BaseException:
+        # Don't leave orphan temp files behind if the write or replace failed.
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def export_colored_dataframes(df, title, path, suffix, precision=2, export_color=True,
@@ -188,9 +283,82 @@ def export_colored_dataframes(df, title, path, suffix, precision=2, export_color
 
     if export_color:
         filepath_image = Path(path + '/' + suffix + '.png')
-        filepath_image.parent.mkdir(parents=True, exist_ok=True)
-        dfi.export(df_styled, filepath_image, max_rows=-1, max_cols=-1, table_conversion=mode)
+        # dfi infers the image format from the extension, so the temp must end in .png.
+        _atomic_write(filepath_image,
+                      lambda tmp: dfi.export(df_styled, tmp, max_rows=-1, max_cols=-1,
+                                             table_conversion=mode),
+                      tmp_suffix=".png")
 
     filepath_dataframe = Path(path + '/' + suffix + '.csv')
-    filepath_dataframe.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(filepath_dataframe)
+    # Temp ends in .tmp (not .csv) so a stray temp is ignored by the annual ".csv" scan.
+    _atomic_write(filepath_dataframe, lambda tmp: df.to_csv(tmp))
+
+
+# ============================ PARALLEL DRIVER ============================
+
+def run_parallel_analysis(worker, tasks, num_workers=None, initializer=None, initargs=()):
+    """Run ``worker`` over ``tasks`` in a bounded process pool, surfacing failures.
+
+    Shared by all four batchAnalysis variants so the scheduling layer lives in one
+    place (no more 4-way drift, dead Manager().Queue() plumbing, or unbounded
+    one-process-per-station spawning).
+
+    :param worker: top-level callable invoked as ``worker(*args)`` for each task.
+                   Must be importable (picklable) for the ``spawn`` start method
+                   used on macOS / Windows - no lambdas or closures.
+    :param tasks:  iterable of ``(label, args)`` pairs, one per station. ``label``
+                   is a human-readable station id used only for reporting; ``args``
+                   is the argument tuple passed to ``worker``.
+    :param num_workers: pool size. ``None`` -> ``config.num_workers`` (mode-dependent
+                   default; see config.py). Capped at ``len(tasks)``.
+    :param initializer / initargs: forwarded to ProcessPoolExecutor so each worker
+                   process can do one-time setup (e.g. opening the forecast once per
+                   process instead of once per task). No-op in radiosonde mode.
+    :returns: list of ``(label, status, error)`` where status is "ok" or "failed".
+    """
+    tasks = list(tasks)
+    if not tasks:
+        print(colored("No stations to analyze.", "yellow"))
+        return []
+
+    if num_workers is None:
+        num_workers = config.num_workers or (os.cpu_count() or 1)
+    num_workers = max(1, min(num_workers, len(tasks)))
+
+    print(colored(
+        "Dispatching " + str(len(tasks)) + " stations across " + str(num_workers) + " workers...",
+        "cyan"))
+
+    results = []
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers,
+                                                initializer=initializer,
+                                                initargs=initargs) as executor:
+        future_to_label = {executor.submit(worker, *args): label for label, args in tasks}
+        try:
+            for future in concurrent.futures.as_completed(future_to_label):
+                label = future_to_label[future]
+                try:
+                    future.result()
+                    results.append((label, "ok", None))
+                except Exception as e:
+                    # A worker that raised (surfaced exception) or whose process died
+                    # mid-task (e.g. OOM -> BrokenProcessPool) lands here instead of
+                    # silently passing as success.
+                    results.append((label, "failed", repr(e)))
+                    print(colored("WORKER FAILED for " + label + " -> " + repr(e), "red"))
+        except KeyboardInterrupt:
+            print(colored("Caught KeyboardInterrupt, cancelling pending workers", "red"))
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise
+
+    failed = [r for r in results if r[1] != "ok"]
+    if failed:
+        print(colored(
+            "\n" + str(len(failed)) + " of " + str(len(tasks)) + " stations failed:", "red"))
+        for label, _status, error in failed:
+            print(colored("    " + label + " -> " + str(error), "red"))
+    else:
+        print(colored(
+            "All " + str(len(tasks)) + " stations completed successfully.", "green"))
+
+    return results
