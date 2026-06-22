@@ -3,12 +3,49 @@ import config
 import dataframe_image as dfi
 from pathlib import Path
 import os
+import sys
 from termcolor import colored
 import glob
 
 """
 utils.py contains multiple helper and utility functions that are used across multiple other scripts in RadioWinds.
 """
+
+def prompt_continue_or_exit(prompt):
+    """Single-keypress confirm: Enter continues, any other key exits.
+
+    Reads one raw keypress so the user doesn't have to press Enter twice.
+    Falls back to line-based input() when stdin isn't an interactive tty
+    (piped input / CI), where a bare Enter (empty line) continues and any
+    other text exits. Returns True to continue, False to exit.
+    """
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+
+    try:
+        import termios, tty
+    except ImportError:
+        termios = None
+
+    if termios is not None and sys.stdin.isatty():
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        # Enter arrives as \r (or \n) in raw mode; any other key (space, etc.) exits.
+        return ch in ("\r", "\n")
+
+    # Non-interactive fallback: empty line continues, anything else exits.
+    try:
+        return input().strip() == ""
+    except EOFError:
+        return False
+
 
 def lookupWMO(FAA):
     path = r'Radiosonde_Stations_Info/CLEANED/'  # use your path

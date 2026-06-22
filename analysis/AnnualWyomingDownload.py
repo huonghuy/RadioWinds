@@ -143,7 +143,7 @@ def get_yearly_soundings(FAA, WMO, year):
 
 def parallelize(stations_df, year):
     """
-    Parralelize the download process for each station one year at a time.  Each station is sent to it's own thread to download radiosonde flights
+    Parralelize the download process for each station one year at a time.  Each station is sent to it's own process to download radiosonde flights
     for the year.
 
     This makes the bulk download of radiosonde data for a list of stations for a year, go much faster.
@@ -164,7 +164,7 @@ def parallelize(stations_df, year):
 
     # If There's a keyboard interrupt, terminate multiprocessing in Python, and exit program
     except KeyboardInterrupt:
-        print("Caught KeyboardInterrupt, terminating mutliprocessing threads.")
+        print("Caught KeyboardInterrupt, terminating worker processes.")
         for p in procs: p.terminate()
         sys.exit()
 
@@ -184,7 +184,7 @@ if __name__ == "__main__":
 
         for i in range(config.start_year, config.end_year + 1):
             if config.parallelize:
-                print(colored("Downloading Radiosonde Datasets in Parallel [MultiThreading]", "cyan"))
+                print(colored("Downloading Radiosonde Datasets in Parallel [Multiprocessing]", "cyan"))
                 parallelize(stations_df, year=i)
             else:
                 print(colored("Downloading Radiosonde Datasets in Sequence", "cyan"))

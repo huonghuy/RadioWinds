@@ -253,7 +253,7 @@ def batch_analysis(era5, year, WMO, FAA, lat, lon, min_alt, max_alt,
 
 def parallelize(era5, stations_df, year,min_alt,max_alt,min_pressure,max_pressure,alt_step,n_sectors,speed_threshold):
     """
-    Parrallelize the analysis process.  Each station downlaod goes on it's own thread.
+    Parrallelize the analysis process.  Each station download goes on it's own process.
     Activating this functionality makes the analysis much faster.
     If debugging new/added features, don't use parallelize.
     """
@@ -329,7 +329,7 @@ if __name__ == "__main__":
             print(colored(
                 "============================================================================================\n" +
                 "==========Analyzing Radiosonde Datasets for YEAR - " + str(year) +
-                " in Parallel [MultiThreading]========\n" +
+                " in Parallel [Multiprocessing]========\n" +
                 "============================================================================================\n",
                 "cyan"))
             parallelize(era5, stations_df, year=year,

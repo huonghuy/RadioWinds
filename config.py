@@ -7,14 +7,14 @@ from datetime import datetime, timedelta
 # **************** DOWNLOAD AND ANALYSIS ************************
 
 type = "ALT"                    # ALT or PRES
-mode = "era5"             # radiosonde or era5
-continent = "Test"               # 'all' will download every continent
+mode = "radiosonde"             # radiosonde or era5
+continent = "North_America"               # 'all' will download every continent
                                 # Or you can do one at a time: North America, South America, 
                                 # Europe, Asia, Africa, Australia, Antarctica
                                 # May run into rate limits
 mapping_mode = mode           # mode or diff
 
-# Multithreading can be finicky and run out of memory on Windows (it also seems slower)
+# Multiprocessing can be finicky and run out of memory on Windows (it also seems slower)
 # I have no memory issues on WSL or Ubuntu.
 parallelize = False #True         # It's recommended to change logging to False if parallelize is True.
 logging = False                  # Displays extra debugging and status text in the Terminal
@@ -82,8 +82,13 @@ _default_gfs_file = (
 )
 
 forecast = dict(
+    #"""
+    #This is for era5 data only. Look into unifying this process
+
+    #"""
     #file = "/srv/shared/ERA5_PRES/2023/era5_2023_complete.nc", #_default_gfs_file, #change this if you want era5
-    file = "/srv/shared/ERA5_COMP/2022/2022-ERA5-Complete.nc",
+    #file = "/srv/shared/ERA5_COMP/2022/2022-ERA5-Complete.nc",
+    file = "/srv/shared/SOUNDINGS_DATA/",
     #era_file = "forecasts/" + "western_hemisphere-2022-North.nc"
     #era_file = "../../../../mnt/d/cds_api/" + "2023-ERA5-Complete.nc"
     #era_file = "../../../../mnt/d/FORECASTS/" + "2023-ERA5-North.nc"
@@ -106,13 +111,13 @@ forecast = dict(
     wind_interpolation = 'linear_full',
 )
 
-
-parent_folder = parent_dir + 'SOUNDINGS_DATA/'
+#radiosonde only
+parent_folder = '/srv/shared/SOUNDINGS_DATA/' #parent_dir + 'SOUNDINGS_DATA/'
 
 # Best to Change the analysis folders depending on which type of analsis you're doing
-analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-FULL' + '/'
+#analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-Test2' + '/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-CALM' + '/'
-#analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-FULL' + '/'
+analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-FULL-NP' + '/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-BURST' + '/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-optimized-WH/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-Complete-lon-fix/'
@@ -127,7 +132,7 @@ g = 9.80665
 
 
 # ************************ ERA5 **********************************
-combined = False
+combined = False #DO NOT CHANGE, DEPRECIATED
 
 # Mandatory pressure levels downloaded from ERA5  (~9.5km - 31km?)
 era5_pressure_levels = np.asarray([300, 250, 225, 200, 175, 150, 125, 100, 70, 50,  30,  20, 10])

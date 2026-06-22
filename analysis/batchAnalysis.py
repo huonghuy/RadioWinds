@@ -5,7 +5,8 @@ import numpy as np
 import os
 from os import listdir
 import sys
-from multiprocessing import Process, Manager
+import traceback
+from multiprocessing import Process
 import copy
 
 # RadioWinds Imports
@@ -230,8 +231,11 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
                             for i in range(0,min_pres_index):
                                 mask[i] = np.NAN
 
-                except:
-                    print(colored("MASKING EXCEPTION", "yellow"))
+                except Exception as e:
+                    print(colored(
+                        "MASKING EXCEPTION for Station " + str(FAA) + " - " + str(WMO) +
+                        " " + str(year) + "/" + str(j) + " (" + csv + "): " + repr(e),
+                        "yellow"))
 
                 # Need to check if Dataframe is empty after dropping nan values was done on direction and speed
                 try:
@@ -240,9 +244,11 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
                     if config.logging:
                         print(date)
                     wind_probabilities.loc[date, :] = mask
-                except:
-                    print(colored("GOT AN EXCEPTION", "yellow"))
-                    pass
+                except Exception as e:
+                    print(colored(
+                        "WIND PROBABILITY ROW EXCEPTION for Station " + str(FAA) + " - " + str(WMO) +
+                        " " + str(year) + "/" + str(j) + " (" + csv + "): " + repr(e),
+                        "yellow"))
 
         else:
             date = datetime(year, j, 1, 00)  # day and time shouldn't matter
@@ -415,27 +421,65 @@ def batch_analysis(era5, year, WMO, FAA, lat, lon, min_alt, max_alt,
     print()
 
 
+def _run_batch_analysis(station_label, era5, year, WMO, FAA, lat, lon, min_alt, max_alt,
+                        min_pressure, max_pressure, alt_step, n_sectors, speed_threshold):
+    """
+    Worker entry point for parallel runs.
+
+    Wraps batch_analysis so that any exception raised inside a child process is
+    surfaced (printed with station context + full traceback) and turned into a
+    non-zero exit code, instead of vanishing silently and letting the parent's
+    p.join() treat a dead worker as a successful one.
+    """
+    try:
+        batch_analysis(era5, year, WMO, FAA, lat, lon, min_alt, max_alt,
+                       min_pressure, max_pressure, alt_step, n_sectors, speed_threshold)
+    except Exception:
+        print(colored(
+            "WORKER FAILED for Station " + station_label + " Year-" + str(year) + ":\n" +
+            traceback.format_exc(),
+            "red"))
+        sys.exit(1)
+
+
 def parallelize(era5, stations_df, year,min_alt,max_alt,min_pressure,max_pressure,alt_step,n_sectors,speed_threshold):
     """
-    Parrallelize the analysis process.  Each station downlaod goes on it's own thread.
+    Parrallelize the analysis process.  Each station download goes on it's own process.
     Activating this functionality makes the analysis much faster.
     If debugging new/added features, don't use parallelize.
     """
 
+    procs = []
     try:
-        queue = Manager().Queue()
-        procs = [Process(target=batch_analysis, args=(era5, year, row.WMO, row.FAA, row.lat_era5, row.lon_era5,
-                                               min_alt, max_alt, min_pressure, max_pressure, alt_step,
-                                               n_sectors,speed_threshold))
-                                               for row in stations_df.itertuples(index=False)]
+        for row in stations_df.itertuples(index=False):
+            station_label = str(row.FAA) + " - " + str(row.WMO)
+            procs.append(Process(target=_run_batch_analysis,
+                                 args=(station_label, era5, year, row.WMO, row.FAA, row.lat_era5, row.lon_era5,
+                                       min_alt, max_alt, min_pressure, max_pressure, alt_step,
+                                       n_sectors, speed_threshold),
+                                 name=station_label))
+
         for p in procs: p.start()
         for p in procs: p.join()
 
-        results = []
-        while not queue.empty():
-            results.append(queue.get)
+        # Inspect exit codes so crashed / OOM-killed workers are reported instead of
+        # silently treated as successful. A negative exit code means the worker was
+        # killed by a signal (e.g. -9 = SIGKILL, typically the OOM killer).
+        failed = [(p.name, p.exitcode) for p in procs if p.exitcode != 0]
+        if failed:
+            print(colored(
+                "\n" + str(len(failed)) + " of " + str(len(procs)) +
+                " workers failed or were killed for Year-" + str(year) + ":",
+                "red"))
+            for name, code in failed:
+                reason = ("killed by signal " + str(-code)) if code < 0 else ("exited with code " + str(code))
+                print(colored("    " + name + " -> " + reason, "red"))
+        else:
+            print(colored(
+                "All " + str(len(procs)) + " workers completed successfully for Year-" + str(year) + ".",
+                "green"))
 
-        return results
+        return failed
 
     # If There's a keyboard interrupt, terminate multiprocessing in Python, and exit program
     except KeyboardInterrupt:
@@ -475,6 +519,30 @@ if __name__ == "__main__":
     stations_df['lat_era5'] = stations_df.apply(lambda x: (-1 * x['  LAT'] if x['N'] == 'S' else 1 * x['  LAT']), axis=1)
     stations_df['lon_era5'] = stations_df.apply(lambda x: (-1* x[' LONG'] if x['E'] == 'W' else 1 * x[' LONG']), axis=1)
 
+    # ---- Forecast spatial-domain guard ----
+    # getNearestLatIdx/getNearestLonIdx (closestIdx) silently snap out-of-domain
+    # coords to an edge cell, so every out-of-domain station aliases to the same
+    # grid point and produces identical (wrong) results. Reject those up front.
+    # Bounds come from the loaded forecast (Forecast.LAT_LOW/.. in Forecast.py),
+    # which is already in the [-180, 180) lon frame used by lon_era5 above, so no
+    # 0-360 correction is needed.
+    if config.mode == "era5" and era5 is not None:
+        oob = stations_df[
+            (stations_df['lat_era5'] < era5.LAT_LOW) | (stations_df['lat_era5'] > era5.LAT_HIGH) |
+            (stations_df['lon_era5'] < era5.LON_LOW) | (stations_df['lon_era5'] > era5.LON_HIGH)
+        ]
+
+        if not oob.empty:
+            print(colored(
+                "Stations outside forecast domain "
+                f"(lat [{era5.LAT_LOW}, {era5.LAT_HIGH}], lon [{era5.LON_LOW}, {era5.LON_HIGH}]). "
+                "These would silently snap to an edge cell:\n"
+                + oob[['WMO', 'FAA', 'lat_era5', 'lon_era5']].to_string(index=False),
+                "red"))
+            if not utils.prompt_continue_or_exit(colored(
+                    "Press Enter to continue anyway, or any other key to exit: ", "yellow")):
+                sys.exit()
+
     print(stations_df)
 
     # Initialize Variables
@@ -493,7 +561,7 @@ if __name__ == "__main__":
             print(colored(
                 "============================================================================================\n" +
                 "==========Analyzing Radiosonde Datasets for YEAR - " + str(year) +
-                " in Parallel [MultiThreading]========\n" +
+                " in Parallel [Multiprocessing]========\n" +
                 "============================================================================================\n",
                 "cyan"))
             parallelize(era5, stations_df, year=year,
