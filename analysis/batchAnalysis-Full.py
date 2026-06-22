@@ -11,7 +11,6 @@ import traceback
 import config
 import utils
 from analysis import opposing_wind_wyoming
-from analysis.Forecast import Forecast
 
 """
 

@@ -11,7 +11,6 @@ import traceback
 import config
 import utils
 from analysis import opposing_wind_wyoming
-from analysis.Forecast import Forecast
 
 """
 
@@ -379,7 +378,7 @@ if __name__ == "__main__":
                 "============================================================================================\n",
                 "cyan"))
             for row in stations_df.itertuples(index=False):
-                batch_analysis(year,
+                batch_analysis(era5, year,
                         WMO=row.WMO,
                         FAA=row.FAA,
                         lat=row.lat_era5,

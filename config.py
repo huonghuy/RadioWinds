@@ -1,8 +1,6 @@
 import numpy as np
 import os
 from datetime import datetime, timedelta
-#from backports.datetime_fromisoformat import MonkeyPatch
-#MonkeyPatch.patch_fromisoformat()     # Hacky solution for Python 3.6 to use ISO format Strings
 
 # **************** DOWNLOAD AND ANALYSIS ************************
 
