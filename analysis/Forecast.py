@@ -133,6 +133,16 @@ def _spline_uv(alt_m, h_ascending, u_ascending, v_ascending):
     return float(cs_u(alt_m)), float(cs_v(alt_m))
 
 
+class _ScaledVar:
+    """Lazy wrapper: applies a scalar divisor on each __getitem__ slice."""
+    __slots__ = ('_var', '_scale')
+    def __init__(self, var, divisor):
+        self._var = var
+        self._scale = 1.0 / divisor
+    def __getitem__(self, key):
+        return np.asarray(self._var[key]) * self._scale
+
+
 class Forecast:
     """Reader for v2 canonical forecast files (GFS- or ERA5-sourced)."""
 
@@ -232,14 +242,22 @@ class Forecast:
             self.resolution_hr = 1.0
 
         # v2 standard format: file IS a tight bounding-box subset. No mask-
-        # based subsetting, no index bookkeeping. Whole-array reads.
-        g = 9.80665  # convert geopotential (m^2/s^2) to geopotential height (m)
+        # based subsetting, no index bookkeeping.
+        # lat/lon/levels are small — read eagerly. u/v/z are large 4D arrays;
+        # keep as netCDF variable references for lazy, chunk-at-a-time access.
+        self._g = 9.80665
         self.lat = np.asarray(self.file.variables['latitude'][:], dtype=float)
         self.lon = np.asarray(self.file.variables['longitude'][:], dtype=float)
         self.levels = self.file.variables['pressure_level'][:]
-        self.ugdrps0 = self.file.variables['u'][:]
-        self.vgdrps0 = self.file.variables['v'][:]
-        self.hgtprs = self.file.variables['z'][:] / g
+        self.ugdrps0 = self.file.variables['u']
+        self.vgdrps0 = self.file.variables['v']
+        self.hgtprs = _ScaledVar(self.file.variables['z'], self._g)
+
+        # Enlarge the per-variable HDF5 chunk cache so repeated column
+        # reads ([t, :, lat, lon]) don't re-decompress the same chunks.
+        _cache_bytes = 256 * 1024 * 1024
+        for var in (self.ugdrps0, self.vgdrps0, self.file.variables['z']):
+            var.set_var_chunk_cache(_cache_bytes, 4133, 0.75)
 
         # Bounds for trajectory containment checks / region polygons.
         self.LAT_LOW  = float(np.min(self.lat))
