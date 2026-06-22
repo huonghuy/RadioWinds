@@ -19,6 +19,18 @@ mapping_mode = mode           # mode or diff
 parallelize = False #True         # It's recommended to change logging to False if parallelize is True.
 logging = False                  # Displays extra debugging and status text in the Terminal
 
+# Number of worker processes used when parallelize=True. None => mode-dependent
+# default resolved just below:
+#   radiosonde: os.cpu_count()         - workers only read small per-station CSVs
+#   era5:       min(4, os.cpu_count()) - each worker holds its own full-year copy
+#                                        of the forecast arrays, so the worker count
+#                                        is a memory multiplier, not just a CPU knob.
+# Set an explicit integer to override.
+num_workers = None
+if num_workers is None:
+    _cpu = os.cpu_count() or 1
+    num_workers = min(4, _cpu) if mode == "era5" else _cpu
+
 start_year = 2022
 end_year = 2022
 
