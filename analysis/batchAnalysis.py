@@ -168,8 +168,11 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
                             category="monthly"):
         return True
 
-    # Iterate by month and day for a particular year.
-    for j in range (1,12+1):
+    # Resume-aware: only (re)analyze months whose monthly CSV isn't already on disk.
+    # check_analyzed above returned False, so at least one month is missing; atomic
+    # writes (utils._atomic_write) guarantee any CSV that IS present is complete, so
+    # skipping it can't lose data.
+    for j in utils.missing_months(FAA, WMO, year):
         # Reinitialize dataframes
         wind_bins, wind_probabilities = reinitializeProbabilities()
 
@@ -265,6 +268,13 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
 
         save_wind_probabilties(FAA, WMO, wind_probabilities, analysis_folder, date)
 
+    # All 12 monthly CSVs are now present; drop the .done sentinel so future runs
+    # skip this station-year via monthly_complete without re-counting files. Guarded
+    # by monthly_complete so a partial run (e.g. an early "Not Downloaded" return) is
+    # never falsely marked done.
+    if utils.monthly_complete(FAA, WMO, year):
+        utils.mark_monthly_done(FAA, WMO, year)
+
     return True
 
 
@@ -332,6 +342,13 @@ def anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year, min_alt=15000, max
             print()
             print(date)
         wind_probabilities.loc[date, :] = mask
+
+    # All 12 monthly CSVs are now written; mark the station-year complete. era5 has
+    # no per-month resume (its single timestep loop saves at month rollover), so this
+    # is a station-level sentinel. Guarded by monthly_complete so an incomplete
+    # forecast can't falsely mark the station done.
+    if utils.monthly_complete(FAA, WMO, year):
+        utils.mark_monthly_done(FAA, WMO, year)
 
     return True
 
