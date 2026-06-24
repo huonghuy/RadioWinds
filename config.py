@@ -70,7 +70,7 @@ forecast = dict(
 
     #"""
     #file = "/srv/shared/ERA5_PRES/2023/era5_2023_complete.nc",
-    file = "/srv/shared/ERA5_COMP/2022/2022-ERA5-Complete.nc",
+    file = "/srv/shared/ERA5_COMP/2024/2024-ERA5-Complete.nc",
     #file = "/srv/shared/SOUNDINGS_DATA/",
 
     forecast_start_time = "2022-08-22 12:00:00", # used to build the default file path above
