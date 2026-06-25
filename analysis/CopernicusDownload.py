@@ -32,7 +32,7 @@ import shutil
 DATASET = "reanalysis-era5-pressure-levels"
 
 # Queue as many years as you like; they're processed in order.
-YEARS = ["2023", "2024", "2025"]
+YEARS = ["2022"]
 
 VARIABLES = [
     "geopotential",
@@ -61,7 +61,7 @@ DATA_FORMAT = "grib"
 DOWNLOAD_FORMAT = "unarchived"
 
 # Parent folder. Each year gets its own subfolder underneath this.
-OUTPUT_DIR = "era5_data"
+OUTPUT_DIR = "/srv/shared/ERA5_PRES/"
 # ---------------------------------------------------------------------------
 
 # Days 01..31. The CDS ignores days that don't exist in a given month

@@ -3,8 +3,7 @@ import cartopy.io
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-import iris
-import xarray
+#import iris
 import glob
 import os
 import sys
@@ -13,7 +12,7 @@ import utils
 import config
 
 
-import xarray as xr
+#import xarray as xr
 
 '''
 fname = cartopy.io.shapereader.natural_earth(resolution='10m',
@@ -23,17 +22,17 @@ fname = cartopy.io.shapereader.natural_earth(resolution='10m',
 
 #https://www.weather.gov/gjt/education_corner_balloon
 
-fname = iris.sample_data_path('rotated_pole.nc')
-temperature = iris.load_cube(fname)
-
-print(temperature)
-
-temperature.coord('grid_latitude').guess_bounds()
-temperature.coord('grid_longitude').guess_bounds()
-
-gridlons = temperature.coord('grid_longitude').contiguous_bounds()
-gridlats = temperature.coord('grid_latitude').contiguous_bounds()
-temperature = temperature.data
+#fname = iris.sample_data_path('rotated_pole.nc')
+#temperature = iris.load_cube(fname)
+#
+#print(temperature)
+#
+#temperature.coord('grid_latitude').guess_bounds()
+#temperature.coord('grid_longitude').guess_bounds()
+#
+#gridlons = temperature.coord('grid_longitude').contiguous_bounds()
+#gridlats = temperature.coord('grid_latitude').contiguous_bounds()
+#temperature = temperature.data
 
 
 path = 'Radiosonde_Stations_Info/CLEANED/'
@@ -46,7 +45,7 @@ stations_df = pd.concat((pd.read_csv(f) for f in all_files), ignore_index=True)
 #stations_df = pd.read_csv('Radisonde_Stations_Info/CLEANED/' + continent + ".csv")
 
 print(stations_df)
-print(stations_df.columns)
+#print(stations_df.columns)
 
 #ds=xr.open_dataset(fname)
 #print(ds)
@@ -96,7 +95,7 @@ stations_df_notused =  stations_df[~stations_df.Continent.isin(['North_America',
 ax.scatter(stations_df_notused['lon_era5'], stations_df_notused['lat_era5'], c = "blue", s= 8, transform = ccrs.Geodetic())
 ax.scatter(stations_df_used['lon_era5'], stations_df_used['lat_era5'], c = "red", s= 8, transform = ccrs.Geodetic())
 
-rotated_pole = ccrs.RotatedPole(pole_longitude=177.5, pole_latitude=37.5)
+#rotated_pole = ccrs.RotatedPole(pole_longitude=177.5, pole_latitude=37.5)
 
 path = config.maps_folder + str(config.end_year) + "/"
 isExist = os.path.exists(path)

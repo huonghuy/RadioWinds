@@ -48,12 +48,12 @@ grid_x, grid_y = np.meshgrid(lons, lats)
 
 
 continent = "North_America"
-stations_df = pd.read_csv('Radisonde_Stations_Info/CLEANED/' + continent + ".csv", index_col=1)
+stations_df = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent + ".csv", index_col=1)
 #stations_df = stations_df.loc[stations_df["CO"] == "US"]
 
 '''
 continent2 = "South_America"
-stations_df2 = pd.read_csv('Radisonde_Stations_Info/CLEANED/' + continent2 + ".csv", index_col=1)
+stations_df2 = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent2 + ".csv", index_col=1)
 
 stations_df = pd.concat([stations_df, stations_df2])
 '''
@@ -90,7 +90,7 @@ for row in stations_df.itertuples(index = 'WMO'):
         df = radiosonde
     elif config.mapping_mode == "era5":
         df = era5
-    elif config.mapping_mode == "era5":
+    elif config.mapping_mode == "diff":
         df = radiosonde - era5
 
 

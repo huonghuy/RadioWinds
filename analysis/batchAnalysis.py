@@ -526,50 +526,12 @@ if __name__ == "__main__":
     # Check if ERA5 forecast date range matches config file
     # Maybe later check if The coordinates are right?
 
-    era5 = None # Is this right? Keep as None for now when not using era5 forecast
-
-    if config.mode == "era5":
-        #Initialize forecast reader (handles both GFS- and ERA5-sourced files)
-        era5 = Forecast.from_file(config.forecast['file'])
-        start_datetime, end_datetime = era5.get_statistics()
-
-        if start_datetime != datetime(config.start_year, 1, 1, 00):
-            print(colored("Dates mismatch for analysis. ERA5 start date is " + str(start_datetime) + ". Config file is " +
-                          str(datetime(config.start_year, 1, 1, 00)) , "red"))
-            sys.exit()
-
-        if end_datetime != datetime(config.end_year, 12, 31, 12):
-            print(colored(
-                "Dates mismatch for analysis. ERA5 start date is " + str(end_datetime) + ". Config file is " + str(
-                    datetime(config.end_year, 12, 31, 12)), "red"))
-            sys.exit()
+    # ERA5 data is stored one file per year, so the forecast is loaded/validated
+    # inside the year loop below (one file per round) rather than once up front.
+    era5 = None  # set per-year inside the analysis loop when mode == "era5"
 
     stations_df['lat_era5'] = stations_df.apply(lambda x: (-1 * x['  LAT'] if x['N'] == 'S' else 1 * x['  LAT']), axis=1)
     stations_df['lon_era5'] = stations_df.apply(lambda x: (-1* x[' LONG'] if x['E'] == 'W' else 1 * x[' LONG']), axis=1)
-
-    # ---- Forecast spatial-domain guard ----
-    # getNearestLatIdx/getNearestLonIdx (closestIdx) silently snap out-of-domain
-    # coords to an edge cell, so every out-of-domain station aliases to the same
-    # grid point and produces identical (wrong) results. Reject those up front.
-    # Bounds come from the loaded forecast (Forecast.LAT_LOW/.. in Forecast.py),
-    # which is already in the [-180, 180) lon frame used by lon_era5 above, so no
-    # 0-360 correction is needed.
-    if config.mode == "era5" and era5 is not None:
-        oob = stations_df[
-            (stations_df['lat_era5'] < era5.LAT_LOW) | (stations_df['lat_era5'] > era5.LAT_HIGH) |
-            (stations_df['lon_era5'] < era5.LON_LOW) | (stations_df['lon_era5'] > era5.LON_HIGH)
-        ]
-
-        if not oob.empty:
-            print(colored(
-                "Stations outside forecast domain "
-                f"(lat [{era5.LAT_LOW}, {era5.LAT_HIGH}], lon [{era5.LON_LOW}, {era5.LON_HIGH}]). "
-                "These would silently snap to an edge cell:\n"
-                + oob[['WMO', 'FAA', 'lat_era5', 'lon_era5']].to_string(index=False),
-                "red"))
-            if not utils.prompt_continue_or_exit(colored(
-                    "Press Enter to continue anyway, or any other key to exit: ", "yellow")):
-                sys.exit()
 
     print(stations_df)
 
@@ -582,21 +544,65 @@ if __name__ == "__main__":
     n_sectors = config.n_sectors
     speed_threshold = config.speed_threshold
 
-    # ---- Forecast lifecycle ----
-    # Reuse the validated forecast as the SINGLE copy that workers / the sequential
-    # loop read, via the _WORKER_FORECAST global batch_analysis pulls from. Under
-    # fork (Linux/WSL default) the pool's children inherit this one object
-    # copy-on-write - a single shared, read-only copy. Loading it per worker would
-    # duplicate the full-year arrays N times (a 22 GB file x N) and lock up the box.
-    # Under spawn, parallelize() reloads per worker from forecast_path since children
-    # can't inherit globals. netCDF __del__ is unreliable, so it's closed explicitly
-    # after the run. (Stays None in radiosonde mode.)
-    forecast_path = config.forecast['file'] if config.mode == "era5" else None
-    if era5 is not None:
-        _WORKER_FORECAST = era5
+    # ---- Forecast lifecycle (one file per year) ----
+    # ERA5 data is stored one file per year, so each iteration opens that year's
+    # file (config.forecast['file_template'] formatted with the year), validates
+    # its date range, runs the analysis, then closes it before the next round.
+    # That year's forecast is the SINGLE copy workers / the sequential loop read,
+    # via the _WORKER_FORECAST global batch_analysis pulls from. Under fork
+    # (Linux/WSL default) the pool's children inherit this one object copy-on-write
+    # - a single shared, read-only copy. Loading it per worker would duplicate the
+    # full-year arrays N times (a ~14-34 GB file x N) and lock up the box. Under
+    # spawn, parallelize() reloads per worker from forecast_path since children
+    # can't inherit globals. netCDF __del__ is unreliable, so each year's file is
+    # closed explicitly. (Stays None in radiosonde mode.)
 
     # DO THE WIND PROBABILTIES ANALYSIS
     for year in range(config.start_year, config.end_year + 1):
+
+        forecast_path = None
+        if config.mode == "era5":
+            forecast_path = config.forecast['file_template'].format(year=year)
+            # Initialize forecast reader (handles both GFS- and ERA5-sourced files)
+            era5 = Forecast.from_file(forecast_path)
+            start_datetime, end_datetime = era5.get_statistics()
+
+            if start_datetime != datetime(year, 1, 1, 00):
+                print(colored("Dates mismatch for analysis. ERA5 start date is " + str(start_datetime) +
+                              ". Config file is " + str(datetime(year, 1, 1, 00)), "red"))
+                sys.exit()
+
+            if end_datetime != datetime(year, 12, 31, 12):
+                print(colored("Dates mismatch for analysis. ERA5 end date is " + str(end_datetime) +
+                              ". Config file is " + str(datetime(year, 12, 31, 12)), "red"))
+                sys.exit()
+
+            # ---- Forecast spatial-domain guard ----
+            # getNearestLatIdx/getNearestLonIdx (closestIdx) silently snap
+            # out-of-domain coords to an edge cell, so every out-of-domain station
+            # aliases to the same grid point and produces identical (wrong) results.
+            # The domain is identical across years, so only check the first round.
+            # Bounds come from the loaded forecast (Forecast.LAT_LOW/.. in
+            # Forecast.py), already in the [-180, 180) lon frame used by lon_era5
+            # above, so no 0-360 correction is needed.
+            if year == config.start_year:
+                oob = stations_df[
+                    (stations_df['lat_era5'] < era5.LAT_LOW) | (stations_df['lat_era5'] > era5.LAT_HIGH) |
+                    (stations_df['lon_era5'] < era5.LON_LOW) | (stations_df['lon_era5'] > era5.LON_HIGH)
+                ]
+
+                if not oob.empty:
+                    print(colored(
+                        "Stations outside forecast domain "
+                        f"(lat [{era5.LAT_LOW}, {era5.LAT_HIGH}], lon [{era5.LON_LOW}, {era5.LON_HIGH}]). "
+                        "These would silently snap to an edge cell:\n"
+                        + oob[['WMO', 'FAA', 'lat_era5', 'lon_era5']].to_string(index=False),
+                        "red"))
+                    if not utils.prompt_continue_or_exit(colored(
+                            "Press Enter to continue anyway, or any other key to exit: ", "yellow")):
+                        sys.exit()
+
+            _WORKER_FORECAST = era5
 
         if config.parallelize:
             print(colored(
@@ -635,8 +641,10 @@ if __name__ == "__main__":
                         n_sectors=config.n_sectors,
                         speed_threshold=config.speed_threshold)
 
-    # Release the forecast now that every year has been analyzed. The parent holds
-    # the single copy in both sequential and fork-parallel modes (workers shared it
-    # copy-on-write and have since exited).
-    if _WORKER_FORECAST is not None:
-        _WORKER_FORECAST.close()
+        # Release this year's forecast before opening the next one. The parent
+        # holds the single copy in both sequential and fork-parallel modes (workers
+        # shared it copy-on-write and have since exited).
+        if _WORKER_FORECAST is not None:
+            _WORKER_FORECAST.close()
+            _WORKER_FORECAST = None
+            era5 = None

@@ -4,20 +4,20 @@ from datetime import datetime, timedelta
 
 # ======================= Analysis Settings =======================
 
-type = "PRES"                    # ALT or PRES
+type = "ALT"                    # ALT or PRES
 mode = "era5"                   # radiosonde or era5
 continent = "North_America"     # 'all' will download every continent
                                 # Or you can do one at a time: North America, South America,
                                 # Europe, Asia, Africa, Australia, Antarctica
                                 # May run into rate limits
-mapping_mode = mode             # mode or diff
+mapping_mode = 'diff'             # mode or diff
 
-start_year = 2022
-end_year = 2022
+start_year = 2023
+end_year = 2025
 
 alt_step = 500                  # m
-min_alt = 15000                 # m
-max_alt = 28000 + alt_step - 1  # m  The +alt_step -1 is to include all data points above the 
+min_alt = 0                     # m
+max_alt = 15000 + alt_step - 1  # m  The +alt_step -1 is to include all data points above the 
                                 #    max - the next step size.
 n_sectors = 16
 speed_threshold = 4             # knots for Radiosonde, m/s for ERA5
@@ -56,7 +56,7 @@ parent_folder = '/srv/shared/SOUNDINGS_DATA/'   # radiosonde only
 # Best to Change the analysis folders depending on which type of analsis you're doing
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-Test2' + '/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-CALM' + '/'
-analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-FULL-P-Test' + '/'
+analysis_folder = parent_dir + mode + '_ANALYSIS_'  + type + '/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-BURST' + '/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-optimized-WH/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-Complete-lon-fix/'
@@ -69,9 +69,12 @@ forecast = dict(
     #This is for era5 data only. Look into unifying this process
 
     #"""
-    #file = "/srv/shared/ERA5_PRES/2023/era5_2023_complete.nc",
-    file = "/srv/shared/ERA5_COMP/2024/2024-ERA5-Complete.nc",
-    #file = "/srv/shared/SOUNDINGS_DATA/",
+    # ERA5 data is stored one file per year. batchAnalysis rotates through
+    # start_year..end_year, formatting this template with each year so it can
+    # process multiple years' files in one run.
+    file_template = "/srv/shared/ERA5_PRES/{year}/era5_{year}_complete.nc",
+    #file_template = "/srv/shared/ERA5_COMP/{year}/{year}-ERA5-Complete.nc",
+    #file_template = "/srv/shared/SOUNDINGS_DATA/",
 
     forecast_start_time = "2022-08-22 12:00:00", # used to build the default file path above
     GFSrate = 60,               # (s) After how many iterated dt steps are new wind speeds are looked up
@@ -89,6 +92,11 @@ forecast = dict(
     #                        the highest pressure level).
     wind_interpolation = 'linear_full',
 )
+
+# Single-file consumers (the trajectory sim in Forecast.__init__ and the
+# hovmoller plotting scripts) need one concrete path rather than a per-year
+# rotation; default them to start_year's file.
+forecast['file'] = forecast['file_template'].format(year=start_year)
 
 # ======================= ERA5 ====================================
 
