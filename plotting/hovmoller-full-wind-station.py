@@ -14,7 +14,6 @@ import xarray as xr
 
 
 import sys
-import os
 sys.path.append(os.path.dirname(os.path.abspath('/mnt/d/RadioWinds/config.py')))
 
 import config

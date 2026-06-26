@@ -10,7 +10,6 @@ import numpy as np
 import datetime as dt
 import utils
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-import config
 
 import matplotlib.pyplot as plt
 from matplotlib.dates import MonthLocator, YearLocator, WeekdayLocator, DateFormatter

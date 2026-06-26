@@ -25,7 +25,9 @@ Three legacy families are detected and converted:
        open; the converter handles them identically.
 
   3. ERA5 plev family (CDO grib -> netcdf, short lat/lon naming)
-     - signature: vars u/v/z(/t) with dims time / plev / lat / lon
+     - signature: vars u/v/z(/t), OR the raw GRIB table-128 codes
+       var129/var130/var131/var132 (= z/t/u/v) when the file was produced by
+       `cdo -f nc` without `-t ecmwf`, with dims time / plev / lat / lon
      - plev  : pressure in PASCALS, needs /100 -> hPa; order varies
      - z     : geopotential (m**2 s**-2)
      - One converter covers BOTH ERA5 products that land in this layout:
@@ -91,6 +93,13 @@ V1_ERA5_DIMS = {"time", "level", "latitude", "longitude"}
 # ERA5 reanalysis (ERA5_PRES) and ERA5 'Complete' (ERA5_COMP) both land here
 # after a `cdo -f nc {copy,mergetime}` of raw GRIB pressure-level downloads.
 ERA5_PLEV_DIMS = {"time", "plev", "lat", "lon"}
+# ECMWF GRIB parameter table 128 codes -> canonical names. Present when a file
+# was produced by `cdo -f nc` *without* `-t ecmwf`, so the parameter codes were
+# never translated to variable names (the data is otherwise a normal ERA5 plev
+# file). 129=z, 130=t, 131=u, 132=v are fixed by the ECMWF table.
+GRIB128_RENAME = {"var129": "z", "var130": "t", "var131": "u", "var132": "v"}
+# Minimum set to recognize the GRIB-coded ERA5 plev variant (z, u, v; t optional).
+ERA5_PLEV_GRIB_VARS = {"var129", "var131", "var132"}
 
 
 def detect_format(path: Path) -> str:
@@ -105,7 +114,9 @@ def detect_format(path: Path) -> str:
         return FORMAT_V1_GFS
     if V1_ERA5_DIMS.issubset(dims_) and V2_REQUIRED_VARS.issubset(vars_):
         return FORMAT_V1_ERA5
-    if ERA5_PLEV_DIMS.issubset(dims_) and V2_REQUIRED_VARS.issubset(vars_):
+    if ERA5_PLEV_DIMS.issubset(dims_) and (
+        V2_REQUIRED_VARS.issubset(vars_) or ERA5_PLEV_GRIB_VARS.issubset(vars_)
+    ):
         return FORMAT_ERA5_PLEV
     return FORMAT_UNKNOWN
 
@@ -353,6 +364,12 @@ def _convert_era5_plev(src: Path) -> xr.Dataset:
     contiguous for the sortby reindex.
     """
     raw = xr.open_dataset(src, engine="netcdf4", chunks={"time": 24})
+    # Files merged with `cdo -f nc` but no `-t ecmwf` keep the raw GRIB table-128
+    # parameter codes as variable names (var129/130/131/132). Translate them to
+    # canonical names before the rest of the pipeline, which expects u/v/z(/t).
+    grib_rename = {k: v for k, v in GRIB128_RENAME.items() if k in raw.variables}
+    if grib_rename:
+        raw = raw.rename(grib_rename)
     ds = raw.rename({
         "time": "valid_time",
         "plev": "pressure_level",

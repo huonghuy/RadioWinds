@@ -15,6 +15,10 @@ Setup (one time):
          key: <YOUR-PERSONAL-ACCESS-TOKEN>
   4. On the ERA5 dataset page, scroll to the bottom of the download form and
      ACCEPT the Terms of Use once. Requests fail without this.
+  5. Install CDO (Climate Data Operators) — the merge step shells out to it:
+         conda install -c conda-forge cdo
+     It's a compiled binary, not a pip package, so it isn't in requirements.txt
+     (see environment.yml).
 
 Then just run:  python3 -m CopernicusDownload.py
 """
@@ -90,7 +94,7 @@ def build_request(year, month):
 def merge_year(year):
     """Combine that year's monthly GRIBs into one yearly NetCDF via CDO."""
     year_dir = os.path.join(OUTPUT_DIR, year)
-    out_file = os.path.join(OUTPUT_DIR, f"era5_{year}.nc")
+    out_file = os.path.join(OUTPUT_DIR, f"era5_{year}_Complete.nc")
 
     if os.path.exists(out_file):
         print(f"[skip] {out_file} already exists")

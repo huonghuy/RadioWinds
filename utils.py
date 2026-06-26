@@ -256,6 +256,15 @@ def export_colored_dataframes(df, title, path, suffix, precision=2, export_color
             * Selenium
         The default for dataframe_image is to use chrome. But this doesn't work well with WSL.
         Matplotlib is an option as well, but it doesn't allow for css customization, so no titles or captions
+    
+    ... 6/25/26 REVISED ::
+        Chrome will crash due to an overload in keychain calls, it calls a new window PER image,
+        which leads to 1000+ images over the course of a full run
+        Matplotlib is an option but it runs really slow (100+ seconds per image) due to being cpu heavy,
+        It generates each html format and then has to recalculate cell size as it reads the csv
+
+        Chromium is the new default, which running under --password-store=basic and --use-mock-keychain
+        flags should allow the program to no longer crash.
     """
 
     df.index.name = None
@@ -269,15 +278,44 @@ def export_colored_dataframes(df, title, path, suffix, precision=2, export_color
         for col, cmap in cmaps.items():
             df_styled = df_styled.background_gradient(cmap, subset=col, vmin=0.0, vmax=.35)
 
-    df_styled = df_styled.set_caption(
-        title).set_table_styles([{
+    df_styled = df_styled.set_caption(title).set_table_styles([
+        {
             'selector': 'caption',
             'props': [
                 ('color', 'black'),
                 ('font-weight', 'bold'),
-                ('font-size', '20px')
+                ('font-size', '26px'),
+                ('padding-bottom', '10px')
             ]
-        }])
+        },
+        # Cell sizing for the browser (playwright) render; 19px == the matplotlib
+        # backend's 14pt, so both look alike. matplotlib ignores this CSS (no-op there).
+        {
+            'selector': 'td',
+            'props': [
+                ('min-width', '50px'),
+                ('text-align', 'center'),
+                ('padding', '10px 6px'),
+                ('font-size', '19px')
+            ]
+        },
+        {
+            'selector': 'th',
+            'props': [
+                ('min-width', '50px'),
+                ('text-align', 'center'),
+                ('padding', '10px 6px'),
+                ('font-size', '19px')
+            ]
+        },
+        {
+            'selector': 'th.row_heading',
+            'props': [
+                ('white-space', 'nowrap'),
+                ('text-align', 'right')
+            ]
+        }
+    ])
 
     df_styled = df_styled.format(precision=precision)
 

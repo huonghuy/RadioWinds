@@ -23,6 +23,14 @@ Setup Environment:
 pip3 install -e .
 ```
 
+The colored monthly/annual probability tables are rendered with `dataframe_image`'s
+playwright backend (`config.dfi_mode = "playwright"`), which uses a bundled headless
+chromium. That browser binary is a separate one-time download that `pip` does **not**
+fetch, so after installing the requirements run:
+```
+python -m playwright install chromium
+```
+
 Tested to work on Windows 11 with the following:
 * Python Version 3.12
 * Conda Version 23.7.4

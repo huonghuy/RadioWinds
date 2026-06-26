@@ -12,7 +12,7 @@ continent = "North_America"     # 'all' will download every continent
                                 # May run into rate limits
 mapping_mode = 'diff'             # mode or diff
 
-start_year = 2023
+start_year = 2022
 end_year = 2025
 
 alt_step = 500                  # m
@@ -44,10 +44,10 @@ if num_workers is None:
 
 # ======================= Export ==================================
 
-monthly_export_color = True
+monthly_export_color = False
 annual_export_color = True
-dfi_mode = "chrome"             # Default is "chrome" for Windows 11 and Ubuntu, WSL2 prefers "selenium"
-
+dfi_mode = "playwright"             # Default is "playwright" for Windows 11 and Ubuntu, 
+                                    # WSL2 prefers "selenium"
 # ======================= Directories =============================
 
 parent_dir = os.getcwd() + '/'  # The default is the RadioWinds directory
