@@ -5,19 +5,19 @@ from datetime import datetime, timedelta
 # ======================= Analysis Settings =======================
 
 type = "ALT"                    # ALT or PRES
-mode = "era5"                   # radiosonde or era5
-continent = "North_America"     # 'all' will download every continent
+mode = "radiosonde"                   # radiosonde or era5
+continent = "North_America"     # 'All' will download every continent
                                 # Or you can do one at a time: North America, South America,
                                 # Europe, Asia, Africa, Australia, Antarctica
                                 # May run into rate limits
-mapping_mode = 'diff'             # mode or diff
+mapping_mode = mode             # mode or "diff"
 
-start_year = 2022
+start_year = 2025
 end_year = 2025
 
 alt_step = 500                  # m
-min_alt = 0                     # m
-max_alt = 15000 + alt_step - 1  # m  The +alt_step -1 is to include all data points above the 
+min_alt = 2000                     # m
+max_alt = 25000 + alt_step - 1  # m  The +alt_step -1 is to include all data points above the 
                                 #    max - the next step size.
 n_sectors = 16
 speed_threshold = 4             # knots for Radiosonde, m/s for ERA5
@@ -44,7 +44,7 @@ if num_workers is None:
 
 # ======================= Export ==================================
 
-monthly_export_color = False
+monthly_export_color = True
 annual_export_color = True
 dfi_mode = "playwright"             # Default is "playwright" for Windows 11 and Ubuntu, 
                                     # WSL2 prefers "selenium"

@@ -175,7 +175,9 @@ if __name__ == "__main__":
 
     if config.continent == "All":
         continents = ["North_America", "South_America", "Europe",
-                      "Asia", "Africa", "Australia", "Antarctica"]
+                      "Equator", "Arctic", "Equator", "Africa", 
+                      "Antarctica", "Middle_East", "New_Zealand", 
+                      "SEA", "South_Pacific"]
     else:
         continents = [config.continent]
         

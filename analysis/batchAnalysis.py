@@ -370,7 +370,13 @@ def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
 
     analysis_folder = utils.get_analysis_folder(FAA, WMO, year)
 
-    files = [f for f in listdir(analysis_folder) if f.endswith(".csv")]
+    monthly_prefix = f"{FAA} - {WMO}-{year}-"
+    files = sorted(
+        f for f in listdir(analysis_folder)
+        if f.startswith(monthly_prefix)
+        and f.endswith(".csv")
+        and not f.endswith("-FULL.csv")
+    )
 
     wind_bins, annual_probabilities = reinitializeProbabilities()
 
@@ -384,6 +390,16 @@ def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
         # read csv for each month of individual station
         try:
             df = pd.read_csv(analysis_folder + csv, index_col=0)
+
+            # Skip any unexpected CSV that does not match the monthly altitude/
+            # pressure table shape. Running other batchAnalysis(Burst, Calm, Full) scripts
+            # prior to the sole batchAnalysis would generate a single column file and
+            # broadcast a scalar across every annual bin and corrupt the year.
+            if list(df.columns) != list(annual_probabilities.columns):
+                print(colored(
+                    "Skipping non-monthly CSV in annual rollup: " + analysis_folder + csv,
+                    "yellow"))
+                continue
 
             str_date = df.iloc[0:1].index.values[0]
             date = datetime.strptime(str_date, '%Y-%m-%d %H:%M:%S')

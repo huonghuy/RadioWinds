@@ -16,13 +16,25 @@ import utils
 
 overall_max = 0
 overall_min = 1
+range_label = utils.probability_range_label()
 
 for dir in os.listdir(config.analysis_folder):
     path = config.analysis_folder + dir # path should be where opposing winds analysis is stored
     print(path)
     files = glob.glob(os.path.join(path, "*TOTAL.csv"))  # only include total probabilities maps
-    dfs = [pd.read_csv(f, low_memory=False, index_col=0) for f in files]
+    dfs = []
+    for f in files:
+        df = pd.read_csv(f, low_memory=False, index_col=0)
+        df = utils.subset_probability_columns(df)
+        if df.empty:
+            print(f"Skipping {f}: no saved {config.type} bins inside {range_label}")
+            continue
+        dfs.append(df)
     print(dir)
+
+    if not dfs:
+        print(f"Skipping {dir}: no annual data inside {range_label}")
+        continue
 
     #Take the max of each month's opposing winds probability
     for df in dfs:
@@ -77,14 +89,14 @@ for dir in os.listdir(config.analysis_folder):
 
 
     utils.export_colored_dataframes(decadal_mean,
-                                    title = 'Opposing Wind Probabilities MEANS for Station ' + dir + ' for 2012-2023',
+                                    title = 'Opposing Wind Probabilities MEANS for Station ' + dir + ' for 2015-2025 (' + range_label + ')',
                                     path = path,
                                     suffix = 'analysis-wind_probabilities-DECADAL-MEAN',
                                     export_color=False)
 
 
     utils.export_colored_dataframes(decadal_statistics,
-                                    title='Opposing Wind Probabilities Decadal Statistics for Station ' + dir + ' for 2012-2023',
+                                    title='Opposing Wind Probabilities Decadal Statistics for Station ' + dir + ' for 2015-2025 (' + range_label + ')',
                                     path=path,
                                     suffix='analysis-wind_probabilities-DECADAL-STATISTICS',
                                     precision = 2,

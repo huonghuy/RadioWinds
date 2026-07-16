@@ -9,7 +9,7 @@ from matplotlib.dates import YearLocator,  DateFormatter
 import config
 import utils
 
-FAA = "PAFA"
+FAA = "ABQ"
 WMO = utils.lookupWMO(FAA)
 Station_Name = utils.lookupStationName(FAA)
 print(WMO, FAA, Station_Name)

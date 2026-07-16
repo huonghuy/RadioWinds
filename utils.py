@@ -8,6 +8,7 @@ import tempfile
 import concurrent.futures
 from termcolor import colored
 import glob
+import numpy as np
 
 """
 utils.py contains multiple helper and utility functions that are used across multiple other scripts in RadioWinds.
@@ -131,6 +132,59 @@ def get_analysis_folder(FAA, WMO, year):
 
 def get_data_folder(FAA, WMO, year):
     return config.parent_folder + str(FAA) + " - " + str(WMO) + "/" + str(year) + "/"
+
+
+def _numeric_probability_columns(df):
+    """Probability-bin columns parsed from saved CSV headers, in file order."""
+    values = []
+    for column in df.columns:
+        try:
+            values.append((column, float(column)))
+        except (TypeError, ValueError):
+            continue
+    return values
+
+
+def subset_probability_columns(df, min_alt=None, max_alt=None,
+                               min_pressure=None, max_pressure=None):
+    """Return only the saved probability-bin columns inside the configured range.
+
+    This operates on the columns already present in a batchAnalysis CSV, so later
+    decadal scripts can tighten altitude/pressure bounds without forcing the
+    expensive station-level batchAnalysis rerun. Existing bin spacing is
+    preserved; only out-of-range columns are removed.
+    """
+    min_alt = config.min_alt if min_alt is None else min_alt
+    max_alt = config.max_alt if max_alt is None else max_alt
+    min_pressure = config.min_pressure if min_pressure is None else min_pressure
+    max_pressure = config.max_pressure if max_pressure is None else max_pressure
+
+    keep = []
+    for column, value in _numeric_probability_columns(df):
+        if config.type == "ALT" and min_alt <= value * 1000.0 <= max_alt:
+            keep.append(column)
+        if config.type == "PRES" and min_pressure <= value <= max_pressure:
+            keep.append(column)
+
+    return df.loc[:, keep].copy()
+
+
+def probability_range_label(df=None):
+    """Human-readable ALT/PRES range label for titles and logging."""
+    numeric_columns = []
+    if df is not None:
+        numeric_columns = [value for _, value in _numeric_probability_columns(df)]
+
+    if numeric_columns:
+        low = min(numeric_columns)
+        high = max(numeric_columns)
+        if config.type == "ALT":
+            return f"{low:.1f}-{high:.1f} km"
+        return f"{low:.1f}-{high:.1f} hPa"
+
+    if config.type == "ALT":
+        return f"{config.min_alt / 1000.0:.1f}-{config.max_alt / 1000.0:.1f} km"
+    return f"{config.min_pressure:.1f}-{config.max_pressure:.1f} hPa"
 
 
 def _monthly_csv_path(FAA, WMO, year, month):
