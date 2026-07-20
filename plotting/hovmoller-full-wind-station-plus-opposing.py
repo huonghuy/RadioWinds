@@ -1,21 +1,23 @@
 from os import listdir
+import os
 import pandas as pd
 import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from datetime import datetime
 import matplotlib.pyplot as plt
+import colorcet as cc
 from matplotlib.dates import YearLocator,  DateFormatter
 
 import config
 import utils
 
-FAA = "ABQ"
+FAA = "SBBV"
 WMO = utils.lookupWMO(FAA)
 Station_Name = utils.lookupStationName(FAA)
-print(WMO, FAA, Station_Name)
+CO = utils.lookupCountry(FAA)
+lat, lon, el = utils.lookupCoordinate(FAA)
+print(WMO, FAA, Station_Name, lat, lon, el)
 
 
-wind_bins = np.arange(config.min_alt-500, config.max_alt, config.alt_step)
 labels = np.arange(config.min_alt, config.max_alt, config.alt_step)
 wind_directions = pd.DataFrame(columns=labels)
 
@@ -43,19 +45,13 @@ def getDecadalMonthlyMeans(FAA, WMO):
 
 
 
-                df['wind_bin'] = pd.cut(df['height'], wind_bins+501, labels = labels)
-
-                print(df)
-
-                #df = pd.to_numeric(df, errors='coerce')
-                directions = df.groupby('wind_bin')['direction'].mean()
-                directions = directions.interpolate(method='nearest')
+                directions = utils.binned_wind_directions(df, labels, config.alt_step)
 
                 print(directions)
 
 
                 date_chunks = file[:-4].split('-')
-                time = datetime(config.start_year, int(date_chunks[2]), int(date_chunks[3]), int(date_chunks[4]), 0, 0)
+                time = pd.Timestamp(*map(int, date_chunks[1:5]))
 
                 wind_directions.loc[time, :] = directions
 
@@ -74,6 +70,8 @@ decadal_df = getDecadalMonthlyMeans(FAA, WMO)
 decadal_df = decadal_df.sort_index()
 
 decadal_df.index = pd.to_datetime(decadal_df.index)
+# Preserve every missing 00/12 UTC launch as a blank cell.
+decadal_df = utils.regularize_sounding_grid(decadal_df, config.start_year, config.end_year)
 #decadal_df = (decadal_df.reindex(pd.date_range('2023-01-01', '2023-12-31', freq='D'))
 #      .fillna(np.nan))
 
@@ -94,9 +92,7 @@ decadal_df = decadal_df.sort_index()
 print(decadal_df)
 
 
-opposing_wind_probability = decadal_df.to_numpy()
-
-opposing_wind_probability = opposing_wind_probability.astype(float)
+opposing_wind_probability = np.ma.masked_invalid(decadal_df.to_numpy(dtype=float).T)
 print(opposing_wind_probability)
 
 
@@ -108,20 +104,31 @@ print(opposing_wind_probability)
 
 print(decadal_df.index)
 print(decadal_df.columns)
-print(opposing_wind_probability.T)
+print(opposing_wind_probability)
 
 #Plotting
 fig, ax = plt.subplots(1, 1 , figsize=(18,3))
 #im = ax.pcolormesh(decadal_df.index, decadal_df.columns, opposing_wind_probability, cmap='RdYlGn', vmin=0, vmax=1)
 #im = ax.pcolormesh(decadal_df.index, decadal_df.columns, opposing_wind_probability.T, vmin=0, vmax=360, cmap='rainbow')
-im = ax.contourf(decadal_df.index, decadal_df.columns, opposing_wind_probability.T, levels=np.linspace(0, 360., 13), cmap='rainbow')
+plot_cmap = cc.cm.CET_C6s.copy()
+plot_cmap.set_bad("white")
+ax.set_facecolor("white")
+im = ax.pcolormesh(
+    decadal_df.index, decadal_df.columns, opposing_wind_probability,
+    vmin=0, vmax=360, cmap=plot_cmap, shading="nearest",
+)
 
 #plt.title("Fairbanks, Alaska USA (65$^\circ$N)" +
 #plt.title("Pittsburgh, Pennsylvania USA (40$^\circ$N)" +
 #plt.title("Hilo, Hawaii USA (15$^\circ$N)" +
 #plt.title("Wind Directionality for Station " + FAA +  " in " + str(config.start_year), fontsize=13)
-plt.title("Perth, Australia (32$^\circ$S)" +
-          "\nWind Directionality for Station " + FAA +  " in " + str(config.start_year), fontsize=13)
+hemisphere = "N" if lat >= 0 else "S"
+period = str(config.start_year) if config.start_year == config.end_year else f"{config.start_year}–{config.end_year}"
+plt.title(
+    f"{Station_Name} - {CO} (Station #{str(WMO).zfill(5)}) - {abs(int(lat))}°{hemisphere}"
+    f"\nWind Directionality, {period}",
+    fontsize=13,
+)
 plt.ylabel('Altitude (m)')
 plt.xlabel('Date')
 #fig.colorbar(im)
@@ -163,6 +170,7 @@ fig.tight_layout()
 plt.tight_layout()
 plt.margins(0.1)
 #plt.bbox_inches='tight'
-plt.savefig("Pictures/Hovmoller/" +  str(FAA), bbox_inches='tight')
-plt.savefig("Pictures/Hovmoller-Full-Winds-Plus_Opposing/" +  str(FAA) + "-" + str(config.start_year), bbox_inches='tight')
-plt.show()
+path = "Pictures/Hovmoller-Full-Winds-Plus_Opposing/"
+os.makedirs(path, exist_ok=True)
+plt.savefig(path + str(FAA) + "-" + str(config.start_year), bbox_inches='tight')
+plt.show()

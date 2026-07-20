@@ -4,20 +4,25 @@ from datetime import datetime, timedelta
 
 # ======================= Analysis Settings =======================
 
-type = "ALT"                    # ALT or PRES
-mode = "radiosonde"                   # radiosonde or era5
+type = "PRES"                    # ALT or PRES
+mode = "era5"                   # radiosonde or era5
 continent = "North_America"     # 'All' will download every continent
                                 # Or you can do one at a time: North America, South America,
                                 # Europe, Asia, Africa, Australia, Antarctica
                                 # May run into rate limits
 mapping_mode = mode             # mode or "diff"
 
-start_year = 2025
+start_year = 2023
 end_year = 2025
 
+# Permit ERA5 files that end before the configured calendar year is complete.
+# The available months (including the final partial month) are exported, but no
+# annual result or completion marker is created until all 12 months exist.
+allow_partial_year = True
+
 alt_step = 500                  # m
-min_alt = 2000                     # m
-max_alt = 25000 + alt_step - 1  # m  The +alt_step -1 is to include all data points above the 
+min_alt = 1000                     # m
+max_alt = 28000 + alt_step - 1  # m  The +alt_step -1 is to include all data points above the
                                 #    max - the next step size.
 n_sectors = 16
 speed_threshold = 4             # knots for Radiosonde, m/s for ERA5
@@ -101,7 +106,7 @@ forecast['file'] = forecast['file_template'].format(year=start_year)
 # ======================= ERA5 ====================================
 
 # Mandatory pressure levels downloaded from ERA5  (~9.5km - 31km?)
-era5_pressure_levels = np.asarray([300, 250, 225, 200, 175, 150, 125, 100, 70, 50, 30, 20, 10])
+era5_pressure_levels = np.asarray([650,600,550,500,450,400, 350, 300, 250, 225, 200, 175, 150, 125, 100, 70, 50, 30, 20, 10])
 #era5_pressure_levels = np.asarray([125, 120, 115,110, 105, 100, 95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 47.5, 45,42.5, 40, 37.5, 35, 32.5, 30 ,28, 26, 24, 22, 20]
 
 if mode == "era5":

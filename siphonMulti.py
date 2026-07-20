@@ -24,7 +24,7 @@ class SiphonMulti(WyomingUpperAir):
         """Set up endpoint."""
         super(WyomingUpperAir, self).__init__('http://weather.uwyo.edu/cgi-bin/sounding')
 
-
+ 
     class InvalidTimeParameter(Exception):
         "Server Error Invalid time parameter."
         pass

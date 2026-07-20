@@ -284,7 +284,8 @@ def anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year, min_alt=15000, max
     Very similar to the function above, with some slight tweaks to use an ERA5 forecast instead of Radiosonde data.
     """
 
-    current_month = 1
+    current_month = None
+    full_year_available = era5.model_end_datetime == datetime(year, 12, 31, 12)
 
     analysis_folder = utils.get_analysis_folder(FAA, WMO, year)
 
@@ -295,14 +296,21 @@ def anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year, min_alt=15000, max
     if utils.check_analyzed(FAA, WMO, year,
                             path=utils.get_analysis_folder(FAA, WMO, year),
                             category="monthly"):
-        return True
+        return full_year_available
 
     for time in era5.time_convert:
-        station = era5.get_station(time, lat, lon)
-
         month = time.month
-        day = time.day
-        hour = time.hour
+
+        # A month is complete as soon as the first timestamp of the following
+        # month is encountered. Flush it before accumulating the new month.
+        if current_month is not None and month != current_month:
+            if config.logging:
+                print(wind_probabilities)
+            save_wind_probabilties(FAA, WMO, wind_probabilities, analysis_folder, date)
+            wind_bins, wind_probabilities = reinitializeProbabilities()
+
+        current_month = month
+        station = era5.get_station(time, lat, lon)
 
         station.dropna(subset=['direction', 'speed'], how='all', inplace=True)
 
@@ -313,18 +321,6 @@ def anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year, min_alt=15000, max
 
         if config.logging:
             print("opposing_wind_levels", opposing_wind_levels)
-        # Double check this when full forecast is downloaded
-
-        # Do I need to do this again?
-        if month != current_month or (month == 12 and day== 31 and hour == 12):
-            if config.logging:
-                print(wind_probabilities)
-            save_wind_probabilties(FAA, WMO, wind_probabilities, analysis_folder, date)
-            current_month += 1
-
-            # reinitialize dataframes
-            wind_bins, wind_probabilities = reinitializeProbabilities()
-
         # there's probably a faster way to do this with numpy.
         # Or maybe I should change the output of opposing_wind_levels?
         mask = wind_bins
@@ -343,14 +339,22 @@ def anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year, min_alt=15000, max
             print(date)
         wind_probabilities.loc[date, :] = mask
 
+    # No following month exists to trigger the rollover for the last available
+    # month. Always flush it, whether it is December in a complete file or a
+    # partial month in an in-progress file.
+    if current_month is not None:
+        save_wind_probabilties(FAA, WMO, wind_probabilities, analysis_folder, date)
+
     # All 12 monthly CSVs are now written; mark the station-year complete. era5 has
     # no per-month resume (its single timestep loop saves at month rollover), so this
     # is a station-level sentinel. Guarded by monthly_complete so an incomplete
     # forecast can't falsely mark the station done.
-    if utils.monthly_complete(FAA, WMO, year):
+    if full_year_available and utils.monthly_complete(FAA, WMO, year):
         utils.mark_monthly_done(FAA, WMO, year)
 
-    return True
+    # A partial forecast deliberately remains incomplete. This prevents the
+    # annual rollup below and lets a later full-year run replace these outputs.
+    return full_year_available and utils.monthly_complete(FAA, WMO, year)
 
 
 def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
@@ -588,10 +592,19 @@ if __name__ == "__main__":
                               ". Config file is " + str(datetime(year, 1, 1, 00)), "red"))
                 sys.exit()
 
-            if end_datetime != datetime(year, 12, 31, 12):
-                print(colored("Dates mismatch for analysis. ERA5 end date is " + str(end_datetime) +
-                              ". Config file is " + str(datetime(year, 12, 31, 12)), "red"))
-                sys.exit()
+            expected_end_datetime = datetime(year, 12, 31, 12)
+            if end_datetime != expected_end_datetime:
+                if (config.allow_partial_year and
+                        datetime(year, 1, 1, 00) <= end_datetime < expected_end_datetime):
+                    print(colored(
+                        "Partial-year ERA5 analysis enabled. Available data ends at " +
+                        str(end_datetime) + ". The final partial month will be exported, "
+                        "but annual output and the completion marker will be skipped.",
+                        "yellow"))
+                else:
+                    print(colored("Dates mismatch for analysis. ERA5 end date is " + str(end_datetime) +
+                                  ". Config file is " + str(expected_end_datetime), "red"))
+                    sys.exit()
 
             # ---- Forecast spatial-domain guard ----
             # getNearestLatIdx/getNearestLonIdx (closestIdx) silently snap

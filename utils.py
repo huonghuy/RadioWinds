@@ -454,3 +454,91 @@ def run_parallel_analysis(worker, tasks, num_workers=None, initializer=None, ini
             "All " + str(len(tasks)) + " stations completed successfully.", "green"))
 
     return results
+
+
+# ======================= Hovmoller helpers =======================
+
+def regularize_sounding_grid(df, start_year, end_year):
+    """Place observations on a complete 00/12 UTC grid without imputation."""
+    full_index = pd.date_range(
+        start=pd.Timestamp(start_year, 1, 1, 0),
+        end=pd.Timestamp(end_year, 12, 31, 12),
+        freq="12h",
+    )
+
+    result = df.copy()
+    result.index = pd.to_datetime(result.index)
+    result = result.sort_index()
+
+    if result.index.has_duplicates:
+        duplicates = result.index[result.index.duplicated()].unique()
+        raise ValueError(f"Duplicate sounding timestamps found: {duplicates[:5].tolist()}")
+
+    off_grid = result.index.difference(full_index)
+    if not off_grid.empty:
+        raise ValueError(
+            "Sounding timestamps fall outside the expected 00/12 UTC grid: "
+            f"{off_grid[:5].tolist()}"
+        )
+
+    return result.reindex(full_index)
+
+
+def binned_wind_directions(df, altitude_labels, altitude_step):
+    """Average/interpolate wind vectors in altitude bins, then derive direction.
+
+    Vector components are averaged instead of direction angles so values around
+    north (for example, 359 and 1 degrees) do not incorrectly average to south.
+    Only internal gaps are interpolated; the profile is never extrapolated.
+    """
+    required = {"height", "u_wind", "v_wind"}
+    missing = required.difference(df.columns)
+    if missing:
+        raise ValueError(f"Sounding is missing required columns: {sorted(missing)}")
+
+    labels = np.asarray(altitude_labels)
+    edges = np.append(labels, labels[-1] + altitude_step)
+    wind_bin = pd.cut(
+        df["height"], bins=edges, labels=labels, right=False, include_lowest=True
+    )
+    components = (
+        df.assign(wind_bin=wind_bin)
+        .groupby("wind_bin", observed=False)[["u_wind", "v_wind"]]
+        .mean()
+        .reindex(labels)
+        .interpolate(method="linear", limit_area="inside")
+    )
+
+    resultant_speed = np.hypot(components["u_wind"], components["v_wind"])
+    direction = np.degrees(
+        np.arctan2(-components["u_wind"], -components["v_wind"])
+    ) % 360
+    return direction.mask(resultant_speed <= np.finfo(float).eps)
+
+
+def interpolate_directions(source_altitudes, directions, target_altitudes):
+    """Interpolate angles through unit-vector components without wrap errors."""
+    source_altitudes = np.asarray(source_altitudes, dtype=float)
+    directions = np.asarray(directions, dtype=float)
+    target_altitudes = np.asarray(target_altitudes, dtype=float)
+    valid = np.isfinite(source_altitudes) & np.isfinite(directions)
+    if valid.sum() < 2:
+        return np.full(target_altitudes.shape, np.nan)
+
+    source_altitudes = source_altitudes[valid]
+    radians = np.deg2rad(directions[valid])
+    order = np.argsort(source_altitudes)
+    source_altitudes = source_altitudes[order]
+    sine = np.sin(radians[order])
+    cosine = np.cos(radians[order])
+
+    target_sine = np.interp(
+        target_altitudes, source_altitudes, sine, left=np.nan, right=np.nan
+    )
+    target_cosine = np.interp(
+        target_altitudes, source_altitudes, cosine, left=np.nan, right=np.nan
+    )
+    magnitude = np.hypot(target_sine, target_cosine)
+    result = np.degrees(np.arctan2(target_sine, target_cosine)) % 360
+    result[magnitude <= np.finfo(float).eps] = np.nan
+    return result

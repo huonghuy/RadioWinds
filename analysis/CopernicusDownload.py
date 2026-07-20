@@ -36,7 +36,7 @@ import shutil
 DATASET = "reanalysis-era5-pressure-levels"
 
 # Queue as many years as you like; they're processed in order.
-YEARS = ["2022"]
+YEARS = ["2026"]
 
 VARIABLES = [
     "geopotential",
@@ -52,7 +52,7 @@ PRESSURE_LEVELS = [
     "600", "650",
 ]
 
-TIMES = ["00:00", "12:00"]
+TIMES = ["00:00", "06:00", "12:00", "18:00"]
 
 # [North, West, South, East]
 AREA = [70, -180, 0, -45]

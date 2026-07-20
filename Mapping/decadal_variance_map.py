@@ -36,9 +36,37 @@ plt.rc('font', **font)
 method = 'nearest'
 year = config.start_year
 res = 1 # degrees
-lons = np.arange(min_lon,max_lon,res)
-lats = np.arange(min_lat,max_lat,res)
-grid_x, grid_y = np.meshgrid(lons, lats)
+
+# Plot both statistics produced by decadal_ow_analysis.py.
+TYPES = {
+    'mean': {'cmap': 'RdYlGn', 'vmin': 0.0, 'vmax': 1.0, 'extend': None},
+    'std': {'cmap': 'cool', 'vmin': 0.0, 'vmax': 0.3, 'extend': 'max'},
+}
+
+# Grid longitudes use 0..360 so the Western Hemisphere does not cross the
+# numeric discontinuity at 180 degrees. Cartopy extents remain in -180..180.
+REGIONS = {
+    'Western_Hemisphere': {
+        'min_lat': -65,
+        'max_lat': 75,
+        'min_lon': 360 - 175,
+        'max_lon': 360 - 20,
+        'extent': [-170, -20, -25, 40],
+    },
+}
+
+Months = [
+    '', 'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+# Limit nearest-neighbor interpolation in data-sparse areas. Each station's
+# radius is based on its nearest neighbor, with practical lower/upper bounds.
+USE_COVERAGE_MASK = True
+EARTH_RADIUS_KM = 6371.0088
+COVERAGE_FACTOR = 1.5
+MIN_COVERAGE_KM = 300.0
+MAX_COVERAGE_KM = 1500.0
 
 #--------------------------
 # Load every station once (coordinates are region/type independent).
