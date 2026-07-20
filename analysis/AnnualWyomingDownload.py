@@ -174,10 +174,8 @@ def parallelize(stations_df, year):
 if __name__ == "__main__":
 
     if config.continent == "All":
-        continents = ["North_America", "South_America", "Europe",
-                      "Equator", "Arctic", "Equator", "Africa", 
-                      "Antarctica", "Middle_East", "New_Zealand", 
-                      "SEA", "South_Pacific"]
+        station_directory = Path("Radiosonde_Stations_Info/CLEANED")
+        continents = sorted(path.stem for path in station_directory.glob("*.csv"))
     else:
         continents = [config.continent]
         
