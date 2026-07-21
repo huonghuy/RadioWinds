@@ -459,7 +459,12 @@ def run_parallel_analysis(worker, tasks, num_workers=None, initializer=None, ini
 # ======================= Hovmoller helpers =======================
 
 def regularize_sounding_grid(df, start_year, end_year):
-    """Place observations on a complete 00/12 UTC grid without imputation."""
+    """Add a complete 00/12 UTC grid while preserving off-schedule launches.
+
+    Radiosonde stations occasionally report valid launches at other hours. Those
+    observations remain at their actual timestamps; missing standard launches are
+    added as blank rows and no observations are rounded or imputed.
+    """
     full_index = pd.date_range(
         start=pd.Timestamp(start_year, 1, 1, 0),
         end=pd.Timestamp(end_year, 12, 31, 12),
@@ -474,14 +479,16 @@ def regularize_sounding_grid(df, start_year, end_year):
         duplicates = result.index[result.index.duplicated()].unique()
         raise ValueError(f"Duplicate sounding timestamps found: {duplicates[:5].tolist()}")
 
-    off_grid = result.index.difference(full_index)
-    if not off_grid.empty:
+    range_start = pd.Timestamp(start_year, 1, 1, 0)
+    range_end = pd.Timestamp(end_year + 1, 1, 1, 0)
+    out_of_range = result.index[(result.index < range_start) | (result.index >= range_end)]
+    if not out_of_range.empty:
         raise ValueError(
-            "Sounding timestamps fall outside the expected 00/12 UTC grid: "
-            f"{off_grid[:5].tolist()}"
+            "Sounding timestamps fall outside the configured year range: "
+            f"{out_of_range[:5].tolist()}"
         )
 
-    return result.reindex(full_index)
+    return result.reindex(full_index.union(result.index).sort_values())
 
 
 def binned_wind_directions(df, altitude_labels, altitude_step):

@@ -384,12 +384,6 @@ def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
 
     wind_bins, annual_probabilities = reinitializeProbabilities()
 
-    #Reverse order of column headers, since monthly probabilities already took care of that.  Don't want to reverse twice.
-    if config.type == "PRES":
-        # Reverse order of dataframes for pressure, since high pressure = low altitude
-        annual_probabilities = annual_probabilities.iloc[:, ::-1]
-
-
     for csv in files:
         # read csv for each month of individual station
         try:
@@ -399,20 +393,28 @@ def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
             # pressure table shape. Running other batchAnalysis(Burst, Calm, Full) scripts
             # prior to the sole batchAnalysis would generate a single column file and
             # broadcast a scalar across every annual bin and corrupt the year.
-            if list(df.columns) != list(annual_probabilities.columns):
+            if set(df.columns) != set(annual_probabilities.columns):
                 print(colored(
                     "Skipping non-monthly CSV in annual rollup: " + analysis_folder + csv,
                     "yellow"))
                 continue
+            df = df.reindex(columns=annual_probabilities.columns)
 
             str_date = df.iloc[0:1].index.values[0]
             date = datetime.strptime(str_date, '%Y-%m-%d %H:%M:%S')
 
             annual_probabilities.loc[date.month, :] = df.iloc[-1:].values
-        except:
+        except Exception as e:
+            print(colored(
+                "ANNUAL ROLLUP EXCEPTION for " + analysis_folder + csv + ": " + repr(e),
+                "yellow"))
             continue
 
     annual_probabilities.sort_index(inplace=True, ascending=True)
+
+    if config.type == "PRES":
+        # Display pressure in altitude order after monthly rows are populated.
+        annual_probabilities = annual_probabilities.iloc[:, ::-1]
 
     print(annual_probabilities)
 

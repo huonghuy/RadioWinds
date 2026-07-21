@@ -4,16 +4,16 @@ from datetime import datetime, timedelta
 
 # ======================= Analysis Settings =======================
 
-type = "PRES"                    # ALT or PRES
+type = "ALT"                    # ALT or PRES
 mode = "era5"                   # radiosonde or era5
 continent = "North_America"     # 'All' will download every continent
                                 # Or you can do one at a time: North America, South America,
                                 # Europe, Asia, Africa, Australia, Antarctica
                                 # May run into rate limits
-mapping_mode = mode             # mode or "diff"
+mapping_mode = "diff"             # mode or "diff"
 
-start_year = 2023
-end_year = 2025
+start_year = 2026
+end_year = 2026
 
 # Permit ERA5 files that end before the configured calendar year is complete.
 # The available months (including the final partial month) are exported, but no
@@ -77,8 +77,8 @@ forecast = dict(
     # ERA5 data is stored one file per year. batchAnalysis rotates through
     # start_year..end_year, formatting this template with each year so it can
     # process multiple years' files in one run.
-    file_template = "/srv/shared/ERA5_PRES/{year}/era5_{year}_complete.nc",
-    #file_template = "/srv/shared/ERA5_COMP/{year}/{year}-ERA5-Complete.nc",
+    #file_template = "/srv/shared/ERA5_PRES/{year}/era5_{year}_complete.nc",
+    file_template = "/srv/shared/ERA5_COMP/{year}/{year}-ERA5-Complete.nc",
     #file_template = "/srv/shared/SOUNDINGS_DATA/",
 
     forecast_start_time = "2022-08-22 12:00:00", # used to build the default file path above
