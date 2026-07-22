@@ -13,11 +13,7 @@ import copy
 import config
 import utils
 from analysis import opposing_wind_wyoming
-<<<<<<< HEAD
 from analysis.Forecast import Forecast
-=======
-from analysis.ERA5 import ERA5
->>>>>>> e0c85f82ebf069de020dc4d48543dd2811e2e2e4
 
 """
 
