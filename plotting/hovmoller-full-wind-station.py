@@ -5,40 +5,25 @@ from os import listdir
 import pandas as pd
 import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from datetime import datetime
 import matplotlib.pyplot as plt
 from matplotlib.dates import YearLocator,  DateFormatter
 import os
-import xarray as xr
 
 
 
 import sys
-import os
 sys.path.append(os.path.dirname(os.path.abspath('/mnt/d/RadioWinds/config.py')))
 
 import config
 import utils
 
-# Handling missing data: Replace missing days with NaN values in the DataFrame
-def handle_missing_data(df):
-    """
-    Identify consecutive missing data and ensure they appear as blank regions in the plot.
-    """
-    full_index = pd.date_range(start=df.index.min(), end=df.index.max(), freq='D')
-    df = df.reindex(full_index)  # Reindex to ensure all days are included, even those with no data
-    return df
-
-    #return df.dropna(how='all')
-
-FAA = "SBBV"
+FAA = "OAK"
 WMO = utils.lookupWMO(FAA)
 Station_Name = utils.lookupStationName(FAA)
 CO = utils.lookupCountry(FAA)
 lat,lon,el = utils.lookupCoordinate(FAA)
 print(WMO, FAA, Station_Name, lat,lon,el)
 
-wind_bins = np.arange(config.min_alt-500, config.max_alt, config.alt_step)
 labels = np.arange(config.min_alt, config.max_alt, config.alt_step)
 wind_directions = pd.DataFrame(columns=labels)
 
@@ -63,21 +48,10 @@ def getDecadalMonthlyMeans(FAA, WMO):
                     df = df.drop(df[df['height'] < config.min_alt].index)
                     df = df.drop(df[df['height'] > config.max_alt].index)
 
-                df['wind_bin'] = pd.cut(df['height'], wind_bins+501, labels = labels)
-
-                #print(df)
-
-                #df = pd.to_numeric(df, errors='coerce')
-                directions = df.groupby('wind_bin', observed=False)['direction'].mean()
-                directions = directions.interpolate(method='nearest')
-
-                #print(directions)
-
+                directions = utils.binned_wind_directions(df, labels, config.alt_step)
 
                 date_chunks = file[:-4].split('-')
-                #time = datetime(config.start_year, int(date_chunks[2]), int(date_chunks[3]), int(date_chunks[4]), 0, 0)
-                time = datetime(int(date_chunks[1]), int(date_chunks[2]), int(date_chunks[3]), int(date_chunks[4]), 0, 0)
-                #Accounts for year
+                time = pd.Timestamp(*map(int, date_chunks[1:5]))
                 wind_directions.loc[time, :] = directions
 
                 #print(wind_directions)
@@ -97,8 +71,12 @@ decadal_df = decadal_df.sort_index()
 
 decadal_df.index = pd.to_datetime(decadal_df.index)
 
-# Handle missing data to avoid filling in colors
-#decadal_df = handle_missing_data(decadal_df)
+# Preserve every missing 00/12 UTC launch as a blank cell.
+decadal_df = utils.regularize_sounding_grid(decadal_df, config.start_year, config.end_year)
+missing_days = decadal_df.isna().all(axis=1).groupby(
+    decadal_df.index.normalize()
+).all().sum()
+print(f"Entirely missing days left blank: {missing_days}")
 
 #SBBV 2023
 #'''
@@ -128,9 +106,9 @@ decadal_df.to_csv(path +  str(FAA) + "-" + str(config.start_year) + "-radiosonde
 
 
 
-opposing_wind_probability = decadal_df.to_numpy()
-
-opposing_wind_probability = opposing_wind_probability.astype(float)
+opposing_wind_probability = np.ma.masked_invalid(
+    decadal_df.to_numpy(dtype=float).T
+)
 #print(opposing_wind_probability)
 
 
@@ -203,22 +181,26 @@ bs_csm = brighten_and_saturate_colormap(cc.cm.CET_C6s,
 
 #Plotting
 fig, ax = plt.subplots(1, 1 , figsize=(18,3))
-#im = ax.pcolormesh(decadal_df.index, decadal_df.columns, opposing_wind_probability.T, vmin=0, vmax=360, cmap='rainbow')
-im = ax.contourf(decadal_df.index, decadal_df.columns, opposing_wind_probability.T, levels=np.linspace(0, 360., 19), cmap=bs_csm)
+plot_cmap = bs_csm.copy()
+plot_cmap.set_bad('white')
+ax.set_facecolor('white')
+im = ax.pcolormesh(
+    decadal_df.index,
+    decadal_df.columns,
+    opposing_wind_probability,
+    vmin=0,
+    vmax=360,
+    cmap=plot_cmap,
+    shading='nearest',
+)
 
-if lat >= 0:
-    plt.title(Station_Name + "- " + CO + " (Station #" + str(WMO).zfill(5) + ") - " + str(int(lat)) + "$^\circ$N",
-              fontsize=12)
-else:
-    plt.title(Station_Name + "- " + CO + " (Station #" + str(WMO).zfill(5) + ") - " + str(int(-1 * lat)) + "$^\circ$N",
-              fontsize=12)
-
-
-#plt.title("Puntas Arenas, Chile (53$^\circ$S)" +
-#          "\nWind Directionality for Station #" + str(WMO).zfill(5) +  " in " + str(config.start_year), fontsize=13)
-
-plt.title(Station_Name + "- " + CO +
-          "\nWind Directionality for Station #" + str(WMO).zfill(5) +  " in " + str(config.start_year), fontsize=13)
+hemisphere = "N" if lat >= 0 else "S"
+period = str(config.start_year) if config.start_year == config.end_year else f"{config.start_year}–{config.end_year}"
+plt.title(
+    f"{Station_Name} - {CO} (Station #{str(WMO).zfill(5)}) - {abs(int(lat))}°{hemisphere}"
+    f"\nWind Directionality, {period}",
+    fontsize=13,
+)
 plt.ylabel('Altitude (m)')
 plt.xlabel('Date')
 
@@ -250,7 +232,7 @@ isExist = os.path.exists(path)
 if not isExist:
     # Create a new directory because it does not exist
     os.makedirs(path)
-plt.savefig("Pictures/Hovmoller/" +  str(FAA), bbox_inches='tight')
+plt.savefig(path + str(FAA) + "-" + str(config.start_year), bbox_inches='tight')
 print("Saving...")
 #plt.savefig(path +  str(FAA) + "-" + str(config.start_year) + "-NO-TITLE", bbox_inches='tight')
 plt.show()

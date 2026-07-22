@@ -1,0 +1,23 @@
+# Conda environment for RadioWinds.
+#
+# `cdo` (Climate Data Operators) is a compiled binary, NOT a pip package, so it
+# can only be installed through conda — requirements.txt cannot provide it.
+# analysis/CopernicusDownload.py shells out to `cdo` to merge each year's monthly
+# GRIBs into a single yearly NetCDF, so the merge step fails without it.
+#
+# Create the env:
+#   conda env create -f environment.yml
+# ...or just add cdo to an existing env:
+#   conda install -c conda-forge cdo
+#
+# Pip dependencies are kept in requirements.txt (single source of truth) and
+# pulled in below.
+name: radiowinds
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - cdo
+  - pip
+  - pip:
+      - -r requirements.txt

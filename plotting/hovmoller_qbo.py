@@ -7,10 +7,10 @@ from os import listdir
 import pandas as pd
 import numpy as np
 import datetime as dt
+import re
 
 import matplotlib.pyplot as plt
 from matplotlib.dates import MonthLocator, YearLocator, WeekdayLocator, DateFormatter
-from dateutil.relativedelta import relativedelta
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import matplotlib.ticker as ticker
 from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
@@ -33,15 +33,22 @@ for i in range (0,19+4):
     df_lat = pd.concat([df_lat, pd.DataFrame([row])], ignore_index=True)
 
 df_lat = df_lat.set_index('index')
-df_lat = df_lat.filter(regex='u_wind')
+column_pattern = re.compile(r"u_wind_(\d{1,2})_(\d{4})")
+dated_columns = []
+for column in df_lat.columns:
+    match = column_pattern.fullmatch(column)
+    if match:
+        month, year = map(int, match.groups())
+        dated_columns.append((dt.datetime(year, month, 1), column))
 
+if not dated_columns:
+    raise ValueError("No u_wind_MONTH_YEAR columns found in QBO input")
 
-u_wind = df_lat.to_numpy()
-u_wind = u_wind
-
-base = dt.datetime(2012, 1, 1)
-dates = [base + relativedelta(months=x) for x in range(0, 144)]
-df_lat.columns = dates
+dated_columns.sort()
+dates, columns = zip(*dated_columns)
+df_lat = df_lat.loc[:, list(columns)]
+df_lat.columns = pd.DatetimeIndex(dates)
+u_wind = df_lat.to_numpy(dtype=float)
 
 #Plotting
 fig, ax = plt.subplots(1, 1 , figsize=(18,4))

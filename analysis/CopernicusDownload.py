@@ -15,6 +15,10 @@ Setup (one time):
          key: <YOUR-PERSONAL-ACCESS-TOKEN>
   4. On the ERA5 dataset page, scroll to the bottom of the download form and
      ACCEPT the Terms of Use once. Requests fail without this.
+  5. Install CDO (Climate Data Operators) — the merge step shells out to it:
+         conda install -c conda-forge cdo
+     It's a compiled binary, not a pip package, so it isn't in requirements.txt
+     (see environment.yml).
 
 Then just run:  python3 -m CopernicusDownload.py
 """
@@ -32,7 +36,7 @@ import shutil
 DATASET = "reanalysis-era5-pressure-levels"
 
 # Queue as many years as you like; they're processed in order.
-YEARS = ["2023", "2024", "2025"]
+YEARS = ["2026"]
 
 VARIABLES = [
     "geopotential",
@@ -48,7 +52,7 @@ PRESSURE_LEVELS = [
     "600", "650",
 ]
 
-TIMES = ["00:00", "12:00"]
+TIMES = ["00:00", "06:00", "12:00", "18:00"]
 
 # [North, West, South, East]
 AREA = [70, -180, 0, -45]
@@ -61,7 +65,7 @@ DATA_FORMAT = "grib"
 DOWNLOAD_FORMAT = "unarchived"
 
 # Parent folder. Each year gets its own subfolder underneath this.
-OUTPUT_DIR = "era5_data"
+OUTPUT_DIR = "/srv/shared/ERA5_PRES/"
 # ---------------------------------------------------------------------------
 
 # Days 01..31. The CDS ignores days that don't exist in a given month
@@ -90,7 +94,7 @@ def build_request(year, month):
 def merge_year(year):
     """Combine that year's monthly GRIBs into one yearly NetCDF via CDO."""
     year_dir = os.path.join(OUTPUT_DIR, year)
-    out_file = os.path.join(OUTPUT_DIR, f"era5_{year}.nc")
+    out_file = os.path.join(OUTPUT_DIR, f"era5_{year}_Complete.nc")
 
     if os.path.exists(out_file):
         print(f"[skip] {out_file} already exists")

@@ -5,14 +5,15 @@ import numpy as np
 import os
 from os import listdir
 import sys
-from multiprocessing import Process, Manager
+import traceback
+import multiprocessing
 import copy
 
 # RadioWinds Imports
 import config
 import utils
 from analysis import opposing_wind_wyoming
-from analysis import ERA5
+from analysis.Forecast import Forecast
 
 """
 
@@ -167,8 +168,11 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
                             category="monthly"):
         return True
 
-    # Iterate by month and day for a particular year.
-    for j in range (1,12+1):
+    # Resume-aware: only (re)analyze months whose monthly CSV isn't already on disk.
+    # check_analyzed above returned False, so at least one month is missing; atomic
+    # writes (utils._atomic_write) guarantee any CSV that IS present is complete, so
+    # skipping it can't lose data.
+    for j in utils.missing_months(FAA, WMO, year):
         # Reinitialize dataframes
         wind_bins, wind_probabilities = reinitializeProbabilities()
 
@@ -230,8 +234,11 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
                             for i in range(0,min_pres_index):
                                 mask[i] = np.NAN
 
-                except:
-                    print(colored("MASKING EXCEPTION", "yellow"))
+                except Exception as e:
+                    print(colored(
+                        "MASKING EXCEPTION for Station " + str(FAA) + " - " + str(WMO) +
+                        " " + str(year) + "/" + str(j) + " (" + csv + "): " + repr(e),
+                        "yellow"))
 
                 # Need to check if Dataframe is empty after dropping nan values was done on direction and speed
                 try:
@@ -240,9 +247,11 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
                     if config.logging:
                         print(date)
                     wind_probabilities.loc[date, :] = mask
-                except:
-                    print(colored("GOT AN EXCEPTION", "yellow"))
-                    pass
+                except Exception as e:
+                    print(colored(
+                        "WIND PROBABILITY ROW EXCEPTION for Station " + str(FAA) + " - " + str(WMO) +
+                        " " + str(year) + "/" + str(j) + " (" + csv + "): " + repr(e),
+                        "yellow"))
 
         else:
             date = datetime(year, j, 1, 00)  # day and time shouldn't matter
@@ -259,6 +268,13 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
 
         save_wind_probabilties(FAA, WMO, wind_probabilities, analysis_folder, date)
 
+    # All 12 monthly CSVs are now present; drop the .done sentinel so future runs
+    # skip this station-year via monthly_complete without re-counting files. Guarded
+    # by monthly_complete so a partial run (e.g. an early "Not Downloaded" return) is
+    # never falsely marked done.
+    if utils.monthly_complete(FAA, WMO, year):
+        utils.mark_monthly_done(FAA, WMO, year)
+
     return True
 
 
@@ -268,7 +284,8 @@ def anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year, min_alt=15000, max
     Very similar to the function above, with some slight tweaks to use an ERA5 forecast instead of Radiosonde data.
     """
 
-    current_month = 1
+    current_month = None
+    full_year_available = era5.model_end_datetime == datetime(year, 12, 31, 12)
 
     analysis_folder = utils.get_analysis_folder(FAA, WMO, year)
 
@@ -279,14 +296,21 @@ def anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year, min_alt=15000, max
     if utils.check_analyzed(FAA, WMO, year,
                             path=utils.get_analysis_folder(FAA, WMO, year),
                             category="monthly"):
-        return True
+        return full_year_available
 
     for time in era5.time_convert:
-        station = era5.get_station(time, lat, lon)
-
         month = time.month
-        day = time.day
-        hour = time.hour
+
+        # A month is complete as soon as the first timestamp of the following
+        # month is encountered. Flush it before accumulating the new month.
+        if current_month is not None and month != current_month:
+            if config.logging:
+                print(wind_probabilities)
+            save_wind_probabilties(FAA, WMO, wind_probabilities, analysis_folder, date)
+            wind_bins, wind_probabilities = reinitializeProbabilities()
+
+        current_month = month
+        station = era5.get_station(time, lat, lon)
 
         station.dropna(subset=['direction', 'speed'], how='all', inplace=True)
 
@@ -297,18 +321,6 @@ def anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year, min_alt=15000, max
 
         if config.logging:
             print("opposing_wind_levels", opposing_wind_levels)
-        # Double check this when full forecast is downloaded
-
-        # Do I need to do this again?
-        if month != current_month or (month == 12 and day== 31 and hour == 12):
-            if config.logging:
-                print(wind_probabilities)
-            save_wind_probabilties(FAA, WMO, wind_probabilities, analysis_folder, date)
-            current_month += 1
-
-            # reinitialize dataframes
-            wind_bins, wind_probabilities = reinitializeProbabilities()
-
         # there's probably a faster way to do this with numpy.
         # Or maybe I should change the output of opposing_wind_levels?
         mask = wind_bins
@@ -327,7 +339,22 @@ def anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year, min_alt=15000, max
             print(date)
         wind_probabilities.loc[date, :] = mask
 
-    return True
+    # No following month exists to trigger the rollover for the last available
+    # month. Always flush it, whether it is December in a complete file or a
+    # partial month in an in-progress file.
+    if current_month is not None:
+        save_wind_probabilties(FAA, WMO, wind_probabilities, analysis_folder, date)
+
+    # All 12 monthly CSVs are now written; mark the station-year complete. era5 has
+    # no per-month resume (its single timestep loop saves at month rollover), so this
+    # is a station-level sentinel. Guarded by monthly_complete so an incomplete
+    # forecast can't falsely mark the station done.
+    if full_year_available and utils.monthly_complete(FAA, WMO, year):
+        utils.mark_monthly_done(FAA, WMO, year)
+
+    # A partial forecast deliberately remains incomplete. This prevents the
+    # annual rollup below and lets a later full-year run replace these outputs.
+    return full_year_available and utils.monthly_complete(FAA, WMO, year)
 
 
 def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
@@ -347,29 +374,47 @@ def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
 
     analysis_folder = utils.get_analysis_folder(FAA, WMO, year)
 
-    files = [f for f in listdir(analysis_folder) if f.endswith(".csv")]
+    monthly_prefix = f"{FAA} - {WMO}-{year}-"
+    files = sorted(
+        f for f in listdir(analysis_folder)
+        if f.startswith(monthly_prefix)
+        and f.endswith(".csv")
+        and not f.endswith("-FULL.csv")
+    )
 
     wind_bins, annual_probabilities = reinitializeProbabilities()
-
-    #Reverse order of column headers, since monthly probabilities already took care of that.  Don't want to reverse twice.
-    if config.type == "PRES":
-        # Reverse order of dataframes for pressure, since high pressure = low altitude
-        annual_probabilities = annual_probabilities.iloc[:, ::-1]
-
 
     for csv in files:
         # read csv for each month of individual station
         try:
             df = pd.read_csv(analysis_folder + csv, index_col=0)
 
+            # Skip any unexpected CSV that does not match the monthly altitude/
+            # pressure table shape. Running other batchAnalysis(Burst, Calm, Full) scripts
+            # prior to the sole batchAnalysis would generate a single column file and
+            # broadcast a scalar across every annual bin and corrupt the year.
+            if set(df.columns) != set(annual_probabilities.columns):
+                print(colored(
+                    "Skipping non-monthly CSV in annual rollup: " + analysis_folder + csv,
+                    "yellow"))
+                continue
+            df = df.reindex(columns=annual_probabilities.columns)
+
             str_date = df.iloc[0:1].index.values[0]
             date = datetime.strptime(str_date, '%Y-%m-%d %H:%M:%S')
 
             annual_probabilities.loc[date.month, :] = df.iloc[-1:].values
-        except:
+        except Exception as e:
+            print(colored(
+                "ANNUAL ROLLUP EXCEPTION for " + analysis_folder + csv + ": " + repr(e),
+                "yellow"))
             continue
 
     annual_probabilities.sort_index(inplace=True, ascending=True)
+
+    if config.type == "PRES":
+        # Display pressure in altitude order after monthly rows are populated.
+        annual_probabilities = annual_probabilities.iloc[:, ::-1]
 
     print(annual_probabilities)
 
@@ -383,7 +428,26 @@ def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
                                     export_color=config.annual_export_color)
 
 
-def batch_analysis(era5, year, WMO, FAA, lat, lon, min_alt, max_alt,
+# Per-process Forecast handle, set once per worker by init_worker (era5 mode only).
+# batch_analysis reads this instead of receiving the heavy Forecast object as a task
+# arg, which would be re-pickled to every worker under the spawn start method (and
+# copied per-task under fork).
+_WORKER_FORECAST = None
+
+
+def _init_worker(forecast_path):
+    """ProcessPoolExecutor initializer: open the Forecast once per worker process.
+
+    Loading per process (not per task) avoids re-reading the whole year's u/v/z
+    arrays from disk for every station. In radiosonde mode ``forecast_path`` is
+    None and this is a no-op. In sequential mode the parent sets the global itself.
+    """
+    global _WORKER_FORECAST
+    if forecast_path is not None:
+        _WORKER_FORECAST = Forecast.from_file(forecast_path)
+
+
+def batch_analysis(year, WMO, FAA, lat, lon, min_alt, max_alt,
             min_pressure, max_pressure, alt_step, n_sectors, speed_threshold):
     """
         Schedule the batch analysis
@@ -391,9 +455,12 @@ def batch_analysis(era5, year, WMO, FAA, lat, lon, min_alt, max_alt,
         1. Analyze all the individual probabilities in a [month] for a [station] in a given [year]
             1a. Export the monthly probabilities
         2. Generate the annual probabilty table from the average [month] wind probabilities
+
+        In era5 mode the forecast is read from the per-process global _WORKER_FORECAST
+        (set by _init_worker), not passed in.
     """
     if config.mode == "era5":
-        monthly_analyzed_status = anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year,
+        monthly_analyzed_status = anaylze_monthly_data_era5(_WORKER_FORECAST, lat, lon, FAA, WMO, year,
                                                            min_alt, max_alt, min_pressure, max_pressure,
                                                            alt_step, n_sectors, speed_threshold)
 
@@ -415,33 +482,60 @@ def batch_analysis(era5, year, WMO, FAA, lat, lon, min_alt, max_alt,
     print()
 
 
-def parallelize(era5, stations_df, year,min_alt,max_alt,min_pressure,max_pressure,alt_step,n_sectors,speed_threshold):
+def _run_batch_analysis(station_label, year, WMO, FAA, lat, lon, min_alt, max_alt,
+                        min_pressure, max_pressure, alt_step, n_sectors, speed_threshold):
     """
-    Parrallelize the analysis process.  Each station downlaod goes on it's own thread.
-    Activating this functionality makes the analysis much faster.
-    If debugging new/added features, don't use parallelize.
-    """
+    Worker entry point for parallel runs.
 
+    Wraps batch_analysis so a failure inside a child process is surfaced (station
+    context + full traceback) and then re-raised, so run_parallel_analysis records
+    it as a failed task instead of it vanishing silently.
+    """
     try:
-        queue = Manager().Queue()
-        procs = [Process(target=batch_analysis, args=(era5, year, row.WMO, row.FAA, row.lat_era5, row.lon_era5,
-                                               min_alt, max_alt, min_pressure, max_pressure, alt_step,
-                                               n_sectors,speed_threshold))
-                                               for row in stations_df.itertuples(index=False)]
-        for p in procs: p.start()
-        for p in procs: p.join()
+        batch_analysis(year, WMO, FAA, lat, lon, min_alt, max_alt,
+                       min_pressure, max_pressure, alt_step, n_sectors, speed_threshold)
+    except Exception:
+        print(colored(
+            "WORKER FAILED for Station " + station_label + " Year-" + str(year) + ":\n" +
+            traceback.format_exc(),
+            "red"))
+        raise
 
-        results = []
-        while not queue.empty():
-            results.append(queue.get)
 
-        return results
+def parallelize(forecast_path, stations_df, year, min_alt, max_alt, min_pressure,
+                max_pressure, alt_step, n_sectors, speed_threshold):
+    """
+    Run batch_analysis for every station via the shared bounded process pool
+    (utils.run_parallel_analysis). Per-station isolation means a crash is contained
+    and reported, not silently treated as success.
 
-    # If There's a keyboard interrupt, terminate multiprocessing in Python, and exit program
-    except KeyboardInterrupt:
-        print("Caught KeyboardInterrupt, terminating workers")
-        for p in procs: p.terminate()
-        sys.exit()
+    era5 forecast loading is start-method dependent, to avoid exhausting RAM:
+      * fork (Linux/WSL default): the parent already holds the forecast in the
+        _WORKER_FORECAST global, and forked children inherit it copy-on-write - one
+        shared, read-only copy across all workers. Loading per worker here instead
+        would create one full-year copy PER worker (e.g. a 22 GB file's arrays x N)
+        and thrash the machine into a lockup.
+      * spawn / forkserver (Win/macOS): children start a fresh interpreter with no
+        inherited globals, so each must open its own Forecast from forecast_path.
+    radiosonde mode passes forecast_path=None, so the initializer is a no-op anyway.
+    """
+    tasks = []
+    for row in stations_df.itertuples(index=False):
+        station_label = str(row.FAA) + " - " + str(row.WMO)
+        tasks.append((station_label,
+                      (station_label, year, row.WMO, row.FAA, row.lat_era5, row.lon_era5,
+                       min_alt, max_alt, min_pressure, max_pressure, alt_step,
+                       n_sectors, speed_threshold)))
+
+    if multiprocessing.get_start_method() == "fork":
+        # Children inherit _WORKER_FORECAST via copy-on-write; no per-worker reload.
+        initializer, initargs = None, ()
+    else:
+        initializer, initargs = _init_worker, (forecast_path,)
+
+    return utils.run_parallel_analysis(_run_batch_analysis, tasks,
+                                       num_workers=config.num_workers,
+                                       initializer=initializer, initargs=initargs)
 
 
 if __name__ == "__main__":
@@ -454,24 +548,9 @@ if __name__ == "__main__":
     # Check if ERA5 forecast date range matches config file
     # Maybe later check if The coordinates are right?
 
-    era5 = None # Is this right? Keep as None for now when not using era5 forecast
-
-    if config.mode == "era5":
-        #Initialize ERA5
-        era5 = ERA5()
-        era5.import_forecast(config.era_file)
-        start_datetime, end_datetime = era5.get_statistics()
-
-        if start_datetime != datetime(config.start_year, 1, 1, 00):
-            print(colored("Dates mismatch for analysis. ERA5 start date is " + str(start_datetime) + ". Config file is " +
-                          str(datetime(config.start_year, 1, 1, 00)) , "red"))
-            sys.exit()
-
-        if end_datetime != datetime(config.end_year, 12, 31, 12):
-            print(colored(
-                "Dates mismatch for analysis. ERA5 start date is " + str(end_datetime) + ". Config file is " + str(
-                    datetime(config.end_year, 12, 31, 12)), "red"))
-            sys.exit()
+    # ERA5 data is stored one file per year, so the forecast is loaded/validated
+    # inside the year loop below (one file per round) rather than once up front.
+    era5 = None  # set per-year inside the analysis loop when mode == "era5"
 
     stations_df['lat_era5'] = stations_df.apply(lambda x: (-1 * x['  LAT'] if x['N'] == 'S' else 1 * x['  LAT']), axis=1)
     stations_df['lon_era5'] = stations_df.apply(lambda x: (-1* x[' LONG'] if x['E'] == 'W' else 1 * x[' LONG']), axis=1)
@@ -487,17 +566,83 @@ if __name__ == "__main__":
     n_sectors = config.n_sectors
     speed_threshold = config.speed_threshold
 
+    # ---- Forecast lifecycle (one file per year) ----
+    # ERA5 data is stored one file per year, so each iteration opens that year's
+    # file (config.forecast['file_template'] formatted with the year), validates
+    # its date range, runs the analysis, then closes it before the next round.
+    # That year's forecast is the SINGLE copy workers / the sequential loop read,
+    # via the _WORKER_FORECAST global batch_analysis pulls from. Under fork
+    # (Linux/WSL default) the pool's children inherit this one object copy-on-write
+    # - a single shared, read-only copy. Loading it per worker would duplicate the
+    # full-year arrays N times (a ~14-34 GB file x N) and lock up the box. Under
+    # spawn, parallelize() reloads per worker from forecast_path since children
+    # can't inherit globals. netCDF __del__ is unreliable, so each year's file is
+    # closed explicitly. (Stays None in radiosonde mode.)
+
     # DO THE WIND PROBABILTIES ANALYSIS
     for year in range(config.start_year, config.end_year + 1):
+
+        forecast_path = None
+        if config.mode == "era5":
+            forecast_path = config.forecast['file_template'].format(year=year)
+            # Initialize forecast reader (handles both GFS- and ERA5-sourced files)
+            era5 = Forecast.from_file(forecast_path)
+            start_datetime, end_datetime = era5.get_statistics()
+
+            if start_datetime != datetime(year, 1, 1, 00):
+                print(colored("Dates mismatch for analysis. ERA5 start date is " + str(start_datetime) +
+                              ". Config file is " + str(datetime(year, 1, 1, 00)), "red"))
+                sys.exit()
+
+            expected_end_datetime = datetime(year, 12, 31, 12)
+            if end_datetime != expected_end_datetime:
+                if (config.allow_partial_year and
+                        datetime(year, 1, 1, 00) <= end_datetime < expected_end_datetime):
+                    print(colored(
+                        "Partial-year ERA5 analysis enabled. Available data ends at " +
+                        str(end_datetime) + ". The final partial month will be exported, "
+                        "but annual output and the completion marker will be skipped.",
+                        "yellow"))
+                else:
+                    print(colored("Dates mismatch for analysis. ERA5 end date is " + str(end_datetime) +
+                                  ". Config file is " + str(expected_end_datetime), "red"))
+                    sys.exit()
+
+            # ---- Forecast spatial-domain guard ----
+            # getNearestLatIdx/getNearestLonIdx (closestIdx) silently snap
+            # out-of-domain coords to an edge cell, so every out-of-domain station
+            # aliases to the same grid point and produces identical (wrong) results.
+            # The domain is identical across years, so only check the first round.
+            # Bounds come from the loaded forecast (Forecast.LAT_LOW/.. in
+            # Forecast.py), already in the [-180, 180) lon frame used by lon_era5
+            # above, so no 0-360 correction is needed.
+            if year == config.start_year:
+                oob = stations_df[
+                    (stations_df['lat_era5'] < era5.LAT_LOW) | (stations_df['lat_era5'] > era5.LAT_HIGH) |
+                    (stations_df['lon_era5'] < era5.LON_LOW) | (stations_df['lon_era5'] > era5.LON_HIGH)
+                ]
+
+                if not oob.empty:
+                    print(colored(
+                        "Stations outside forecast domain "
+                        f"(lat [{era5.LAT_LOW}, {era5.LAT_HIGH}], lon [{era5.LON_LOW}, {era5.LON_HIGH}]). "
+                        "These would silently snap to an edge cell:\n"
+                        + oob[['WMO', 'FAA', 'lat_era5', 'lon_era5']].to_string(index=False),
+                        "red"))
+                    if not utils.prompt_continue_or_exit(colored(
+                            "Press Enter to continue anyway, or any other key to exit: ", "yellow")):
+                        sys.exit()
+
+            _WORKER_FORECAST = era5
 
         if config.parallelize:
             print(colored(
                 "============================================================================================\n" +
                 "==========Analyzing Radiosonde Datasets for YEAR - " + str(year) +
-                " in Parallel [MultiThreading]========\n" +
+                " in Parallel [Multiprocessing]========\n" +
                 "============================================================================================\n",
                 "cyan"))
-            parallelize(era5, stations_df, year=year,
+            parallelize(forecast_path, stations_df, year=year,
                         min_alt=config.min_alt,
                         max_alt=config.max_alt,
                         min_pressure=config.min_pressure,
@@ -514,7 +659,7 @@ if __name__ == "__main__":
                 "============================================================================================\n",
                 "cyan"))
             for row in stations_df.itertuples(index=False):
-                batch_analysis(era5, year,
+                batch_analysis(year,
                         WMO=row.WMO,
                         FAA=row.FAA,
                         lat=row.lat_era5,
@@ -526,3 +671,11 @@ if __name__ == "__main__":
                         alt_step=config.alt_step,
                         n_sectors=config.n_sectors,
                         speed_threshold=config.speed_threshold)
+
+        # Release this year's forecast before opening the next one. The parent
+        # holds the single copy in both sequential and fork-parallel modes (workers
+        # shared it copy-on-write and have since exited).
+        if _WORKER_FORECAST is not None:
+            _WORKER_FORECAST.close()
+            _WORKER_FORECAST = None
+            era5 = None

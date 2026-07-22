@@ -3,7 +3,8 @@ import pandas as pd
 import os
 from termcolor import colored
 from pathlib import Path
-from multiprocessing import Process, Manager
+import traceback
+#from multiprocessing import Process, Manager
 import config
 import utils
 import sys
@@ -31,7 +32,7 @@ then parsing into individual flights .csv's).
         or incompletely downloaded months.
 
 Make sure to set the following variables in config before running:
-* base_directory
+* parent_dir
 * parent_folder
 * continent
 * parallelize
@@ -140,40 +141,41 @@ def get_yearly_soundings(FAA, WMO, year):
 
         print("Total number of annual soundings download for", FAA, "-", WMO, "in", year, ":", yearly_count)
 
+def _run_yearly_soundings(station_label, FAA, WMO, year):
+    """
+    Worker entry point for parallel runs.
+
+    Wraps get_yearly_soundings so a failure inside a child process is surfaced 
+    (station context + full traceback) and then re-raised, so run_parallel_analysis 
+    records it as a failed task.
+    """
+    try:
+        get_yearly_soundings(FAA, WMO, year)
+    except Exception:
+        print(colored(
+            "WORKER FAILED for Station " + station_label + " Year-" + str(year) + ":\n" +
+            traceback.format_exc(),
+            "red"))
+        raise
 
 def parallelize(stations_df, year):
     """
-    Parralelize the download process for each station one year at a time.  Each station is sent to it's own thread to download radiosonde flights
-    for the year.
-
-    This makes the bulk download of radiosonde data for a list of stations for a year, go much faster.
-
-    It's recommenmded to turn logging off in config if activating this function
+    Parralelize the download process for each station one year at a time.
+    Uses the shared utils.run_parallel_analysis bounded process pool.
     """
-    try:
-        queue = Manager().Queue()
-        procs = [Process(target=get_yearly_soundings, args=(row.FAA, row.WMO, year)) for row in stations_df.itertuples(index=False)]
-        for p in procs: p.start()
-        for p in procs: p.join()
+    tasks = []
+    for row in stations_df.itertuples(index=False):
+        station_label = str(row.FAA) + " - " + str(row.WMO)
+        tasks.append((station_label, (station_label, row.FAA, row.WMO, year)))
 
-        results = []
-        while not queue.empty():
-            results.append(queue.get)
-
-        return results
-
-    # If There's a keyboard interrupt, terminate multiprocessing in Python, and exit program
-    except KeyboardInterrupt:
-        print("Caught KeyboardInterrupt, terminating mutliprocessing threads.")
-        for p in procs: p.terminate()
-        sys.exit()
-
+    return utils.run_parallel_analysis(_run_yearly_soundings, tasks,
+                                       num_workers=config.num_workers)
 
 if __name__ == "__main__":
 
     if config.continent == "All":
-        continents = ["North_America", "South_America", "Europe",
-                      "Asia", "Africa", "Australia", "Antarctica"]
+        station_directory = Path("Radiosonde_Stations_Info/CLEANED")
+        continents = sorted(path.stem for path in station_directory.glob("*.csv"))
     else:
         continents = [config.continent]
         
@@ -184,7 +186,7 @@ if __name__ == "__main__":
 
         for i in range(config.start_year, config.end_year + 1):
             if config.parallelize:
-                print(colored("Downloading Radiosonde Datasets in Parallel [MultiThreading]", "cyan"))
+                print(colored("Downloading Radiosonde Datasets in Parallel [Multiprocessing]", "cyan"))
                 parallelize(stations_df, year=i)
             else:
                 print(colored("Downloading Radiosonde Datasets in Sequence", "cyan"))

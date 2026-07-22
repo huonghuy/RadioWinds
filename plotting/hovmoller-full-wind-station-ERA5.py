@@ -10,7 +10,7 @@ from matplotlib.dates import YearLocator,  DateFormatter
 import os
 import pandas as pd
 
-FAA = "SCCI"
+FAA = "OAK"
 WMO = utils.lookupWMO(FAA)
 Station_Name = utils.lookupStationName(FAA)
 CO = utils.lookupCountry(FAA)
@@ -57,22 +57,33 @@ def plot_hovmoller_wind_direction(nc_file, lat, lon):
     # Open the NetCDF file
     ds = xr.open_dataset(nc_file)
 
-    if 'plev' in ds.coords:
-        print("FIXING LON")
-        ds = ds.assign_coords(lon=ds.lon - 360)
-        print(ds)
+    ds = ds.rename({
+        old: new
+        for old, new in {
+            "latitude": "lat",
+            "longitude": "lon",
+            "pressure_level": "plev",
+            "valid_time": "time",
+        }.items()
+        if old in ds.coords or old in ds.dims
+    })
+    
 
-    else:
-        print("'plev' is not found in the dataset!")
 
-    print(ds)
+    required_coordinates = {"lat", "lon", "plev", "time"}
+    missing_coordinates = required_coordinates.difference(ds.coords)
+    if missing_coordinates:
+        raise ValueError(f"Forecast is missing required coordinates: {sorted(missing_coordinates)}")
+
+    # Convert [0, 360) longitudes only when the source actually uses them.
+    if float(ds.lon.max()) > 180:
+        ds = ds.assign_coords(lon=((ds.lon + 180) % 360) - 180).sortby("lon")
 
     # Select nearest grid point to the specified latitude and longitude
     ds_sel = ds.sel(lat=lat, lon=lon, method="nearest")
 
     # Extract variables
     time = ds_sel.time.values
-    pressure_levels = ds_sel.plev.values  # Assuming 'plev' represents pressure levels
     z = ds_sel.z/9.81  # Geopotential height (assumed in meters)
     u = ds_sel.u  # U-wind component
     v = ds_sel.v  # V-wind component
@@ -94,9 +105,9 @@ def plot_hovmoller_wind_direction(nc_file, lat, lon):
     z_mean = z_filtered.mean(dim="time").values  # Average geopotential height over time for plotting
 
     # Convert to 2D array for plotting (time x pressure level)
-    wind_direction_2D = wind_direction.T  # Transpose so pressure is on the y-axis
+    wind_direction_2D = np.ma.masked_invalid(wind_direction.transpose("plev", "time").values)
 
-    df = pd.DataFrame(wind_direction_2D.T.values, index=time, columns=z_mean)
+    df = pd.DataFrame(wind_direction.transpose("time", "plev").values, index=time, columns=z_mean)
     path = "Pictures/Data-Hovmoller/"
     isExist = os.path.exists(path)
     if not isExist:
@@ -113,14 +124,19 @@ def plot_hovmoller_wind_direction(nc_file, lat, lon):
                                             saturation_factor=1.25)
 
     # Create Hovmöller plot
-    fig, ax = plt.subplots(1, 1 , figsize=(18,3))
-    im = ax.contourf(time, z_mean, wind_direction_2D, levels=np.linspace(0, 360., 19),
-                     cmap=bs_csm)
+    fig, ax = plt.subplots(1, 1, figsize=(18, 3))
+    plot_cmap = bs_csm.copy()
+    plot_cmap.set_bad("white")
+    ax.set_facecolor("white")
+    im = ax.pcolormesh(
+        time, z_mean, wind_direction_2D, vmin=0, vmax=360,
+        cmap=plot_cmap, shading="nearest",
+    )
 
     if lat >= 0:
-        plt.title(Station_Name + "- " + CO + " (Station #" + str(WMO).zfill(5) + ") - " + str(int(lat)) +"$^\circ$N", fontsize=12)
+        plt.title(Station_Name + "- " + CO + " (Station #" + str(WMO).zfill(5) + ") - " + str(int(lat)) +r"$^\circ$N", fontsize=12)
     else:
-        plt.title(Station_Name + "- " + CO + " (Station #" + str(WMO).zfill(5) + ") - " + str(int(-1*lat)) +"$^\circ$N", fontsize=12)
+        plt.title(Station_Name + "- " + CO + " (Station #" + str(WMO).zfill(5) + ") - " + str(int(-1*lat)) +r"$^\circ$S", fontsize=12)
 
             #"Salt Lake City, Utah USA (40$^\circ$N)" +
             #      "\nWind Directionality (ERA5) for Station #" + str(WMO).zfill(5) +  " in " + str(config.start_year), fontsize=13)
@@ -160,7 +176,7 @@ def plot_hovmoller_wind_direction(nc_file, lat, lon):
 
 
 # Example usage
-nc_file = config.era_file # Replace with the actual NetCDF file path
+nc_file = config.forecast['file'] # Replace with the actual NetCDF file path
 #lat = 40.76  # Replace with desired latitude
 #lon = -111.9  # Replace with desired longitude
 
