@@ -11,6 +11,7 @@ continent = "North_America"     # 'All' will download every continent
                                 # Europe, Asia, Africa, Australia, Antarctica
                                 # May run into rate limits
 mapping_mode = "diff"             # mode or "diff"
+type = "PRES"                    # ALT or PRES
 
 start_year = 2026
 end_year = 2026
@@ -19,6 +20,12 @@ end_year = 2026
 # The available months (including the final partial month) are exported, but no
 # annual result or completion marker is created until all 12 months exist.
 allow_partial_year = True
+start_year = 2023
+end_year = 2023
+
+monthly_export_color = True
+annual_export_color = True
+dfi_mode = "chrome"  # Default is "chrome" for Windows 11 and Ubuntu, WSL2 prefers "selenium"
 
 alt_step = 500                  # m
 min_alt = 1000                     # m
@@ -104,6 +111,14 @@ forecast = dict(
 forecast['file'] = forecast['file_template'].format(year=start_year)
 
 # ======================= ERA5 ====================================
+# ************************ ERA5 **********************************
+combined = False #DO NOT CHANGE
+era_file = "/srv/shared/FORECASTS/2023-ERA5-NORTH.nc"
+#era_file = "forecasts/" + "western_hemisphere-2022-North.nc"
+#era_file = "../../../../mnt/d/cds_api/" + "2023-ERA5-Complete.nc"
+#era_file = "../../../../mnt/d/FORECASTS/" + "2023-ERA5-North.nc"
+#era_file = "../../../../mnt/d/cds_api/" + "2022-ERA5-Complete-Mini.nc"
+#era_file = "../../../../mnt/d/FORECASTS/" + "optimized_ERA5-2022-WH.nc"
 
 # Mandatory pressure levels downloaded from ERA5  (~9.5km - 31km?)
 era5_pressure_levels = np.asarray([650,600,550,500,450,400, 350, 300, 250, 225, 200, 175, 150, 125, 100, 70, 50, 30, 20, 10])
