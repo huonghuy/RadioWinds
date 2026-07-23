@@ -24,16 +24,16 @@ import utils
 #MAP CONFIGURATION STUFF:
 method = 'nearest'
 year = config.start_year
-prefix = "World-Opposing"  #title of the maps that are exported to the MAPS folder
+prefix = "Western-Hemisphere"  #title of the maps that are exported to the MAPS folder
 
 #These are the values download from Copernicus for 2022 in degrees
-'''
+
 #Western Hemisphere
 min_lat = -65
 max_lat = 75
 min_lon = 360-175
 max_lon = 360-20
-'''
+
 '''
 #CONUS
 min_lat = -65
@@ -42,11 +42,13 @@ min_lon = 360-175
 max_lon = 360-20
 '''
 
+'''
 # World
 min_lat = -90
 max_lat = 90
 min_lon = 0
 max_lon = 360
+'''
 
 res = 1 # degrees
 
@@ -56,15 +58,16 @@ lats = np.arange(min_lat,max_lat,res)
 grid_x, grid_y = np.meshgrid(lons, lats)
 
 #--------------------------
-#continent = "North_America"
-#stations_df = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent + ".csv", index_col=1)
+continent = "North_America"
+stations_df = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent + ".csv", index_col=1)
 
 # Uncomment this if South America has been downloaded and Analyzed as well
 #'''
-#continent2 = "South_America"
-#stations_df2 = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent2 + ".csv", index_col=1)
+continent2 = "South_America"
+stations_df2 = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent2 + ".csv", index_col=1)
 
-stations_df = utils.getWorldStations() #pd.concat([stations_df, stations_df2])
+#stations_df = utils.getWorldStations()
+stations_df = pd.concat([stations_df, stations_df2])
 #'''
 
 #Generate a new dataframe of montly probaibilties for each station to add to the stations_df. Take the max probability (per alt/pres)

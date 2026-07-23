@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from matplotlib.dates import MonthLocator, YearLocator, WeekdayLocator, DateFormatter
 import matplotlib.ticker as ticker
 
-FAA = "SCCI"
+FAA = "PHTO"
 WMO = utils.lookupWMO(FAA)
 Station_Name = utils.lookupStationName(FAA)
 CO = utils.lookupCountry(FAA)

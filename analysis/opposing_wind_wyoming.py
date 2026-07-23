@@ -141,7 +141,7 @@ def determine_opposing_winds(df, wind_bins, n_sectors, speed_threshold = 4):
         if np.sum(table, axis=0)[i] != 0 and np.sum(table, axis=0)[i+int(n_sectors/2)] != 0:
             for idx in altitude_lookup_idxs[i]:
                 opposing_wind_levels = np.append(opposing_wind_levels, var_bins[idx])
-                print(var_bins[idx])
+                #print(var_bins[idx])
                 opposing_wind_directions = np.append(opposing_wind_directions, i)
             for idx in altitude_lookup_idxs[i+int(n_sectors/2)]:
                 #print(var_bins[idx])

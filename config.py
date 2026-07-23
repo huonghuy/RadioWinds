@@ -5,30 +5,27 @@ from datetime import datetime, timedelta
 # ======================= Analysis Settings =======================
 
 type = "ALT"                    # ALT or PRES
-mode = "era5"                   # radiosonde or era5
-continent = "North_America"     # 'All' will download every continent
+mode = "radiosonde"                   # radiosonde or era5
+continent = "South_America"     # 'All' will download every continent
                                 # Or you can do one at a time: North America, South America,
                                 # Europe, Asia, Africa, Australia, Antarctica
                                 # May run into rate limits
-mapping_mode = "diff"             # mode or "diff"
-type = "PRES"                    # ALT or PRES
+mapping_mode = mode           # mode or "diff"
 
-start_year = 2026
-end_year = 2026
+start_year = 2023
+end_year = 2023
 
 # Permit ERA5 files that end before the configured calendar year is complete.
 # The available months (including the final partial month) are exported, but no
 # annual result or completion marker is created until all 12 months exist.
 allow_partial_year = True
-start_year = 2023
-end_year = 2023
 
 monthly_export_color = True
 annual_export_color = True
 dfi_mode = "chrome"  # Default is "chrome" for Windows 11 and Ubuntu, WSL2 prefers "selenium"
 
 alt_step = 500                  # m
-min_alt = 1000                     # m
+min_alt = 15000                     # m
 max_alt = 28000 + alt_step - 1  # m  The +alt_step -1 is to include all data points above the
                                 #    max - the next step size.
 n_sectors = 16

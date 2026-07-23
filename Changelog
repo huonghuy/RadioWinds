@@ -1,8 +1,98 @@
-version 1.0.0
+version 2.0.0
 ===============================
-* The original RadioWinds software
+### Unified forecast processing
 
+- Replaced `analysis/ERA5.py` with a shared `analysis/Forecast.py` (taken from[ tkschuler/EarthSHAB](https://github.com/tkschuler/EarthSHAB))
+- Added automatic ERA5/GFS source detection.
+- Standardized forecast datasets on a canonical NetCDF schema:
+  - `valid_time`
+  - `pressure_level`
+  - `latitude`
+  - `longitude`
+  - `u`, `v`, `z`, and optional `t`
+- Standardized pressure to hPa, longitude to `[-180, 180)`, descending latitude/pressure coordinates, and CF-1.7 metadata.
+- Added `Forecast.from_file()` for analysis and plotting workflows that do not use the simulation configuration.
+- Added configurable wind interpolation methods:
+  - `linear_neighbors`
+  - `linear_full`
+  - `spline_full`
+- Added validation and clearer errors for legacy or incompatible forecast files.
+
+### Forecast migration tools (taken from[ tkschuler/EarthSHAB](https://github.com/tkschuler/EarthSHAB))
+
+- Added `forecast_processing/migrate_v1.py` to convert:
+  - Legacy GFS NetCDF files
+  - Legacy ERA5 `time/level` files
+  - ERA5 `plev/lat/lon` files
+  - Raw GRIB variable-code layouts
+- Migration normalizes coordinates, dimensions, variables, timestamps, metadata, and data types.
+- Large files are migrated in chunks.
+- Original files are retained as `.v1.nc` backups.
+- Added dry-run, directory processing, and idempotency support.
+- Added `forecast_processing/verify_migration.py` to identify legacy, incomplete, unknown, or successfully migrated files.
+
+### Parallel analysis and resumability
+
+- Added a shared bounded process-pool driver in `utils.py`.
+- Updated the four batch-analysis variants and annual Wyoming downloader to use the shared multiprocessing implementation.
+- Added configurable worker limits, with a conservative ERA5 default.
+- ERA5 files are processed one year at a time to limit memory usage.
+- Forecast data is inherited or initialized once per worker instead of reloaded for every station.
+- Worker exceptions are surfaced with station context.
+- Added atomic CSV and image writes to avoid incomplete output after interruption.
+- Added `.done` sentinels and monthly completeness checks.
+- Interrupted radiosonde analysis resumes only missing months.
+- Partial ERA5 years can export available months without incorrectly producing an annual result or completion marker.
+
+### Hovmöller corrections
+
+- Moved common Hovmöller functions into `utils.py`.
+- Regularized radiosonde data onto a complete 00/12 UTC grid while leaving missing launches blank.
+- Corrected circular wind-direction averaging by averaging `u` and `v` components rather than direction angles.
+- Corrected interpolation across the 0°/360° boundary.
+- Limited vertical interpolation to internal gaps without extrapolation.
+- Switched plots to masked `pcolormesh` rendering so missing observations remain visible and contours do not interpolate across the direction seam.
+- Updated ERA5 coordinate handling for both legacy and canonical coordinate names.
+- Corrected ERA5 longitude conversion so negative longitudes are only converted when the source uses a 0–360 convention.
+- Corrected ERA5 station selection and pressure-level handling.
+- Updated radiosonde-versus-ERA5 RMSE calculations to use circular interpolation.
+- Improved monthly opposing-wind file matching and explicit handling of missing months.
+- Replaced hard-coded QBO date assumptions with dates parsed from the input data.
+- Corrected the misspelled `hovmoller-ow-probabilitiy-station.py` filename.
+
+### Decadal statistics and mapping
+
+- Decadal calculations now apply the configured altitude or pressure range to existing annual probability files.
+- Added reusable range labels for plot titles and logging.
+- Updated the decadal variance map to generate both mean and standard-deviation maps.
+- Deduplicated stations before interpolation.
+- Corrected station longitude conversion for the map’s 0–360 interpolation grid.
+- Added distance-based coverage masking to prevent nearest-neighbor values from bleeding across data-sparse regions.
+- Improved handling of missing station statistics and insufficient data.
+- Updated mapping scripts for the `parent_dir` configuration rename and corrected station-data paths and mapping modes.
+
+### ERA5 downloads and configuration
+
+- Updated the Copernicus downloader from 00/12 UTC to the four synoptic times: 00, 06, 12, and 18 UTC.
+- Added CDO installation documentation.
+- Added multi-year forecast file templates and `start_year`/`end_year` processing.
+- Renamed `base_directory` configuration references to `parent_dir`.
+- Reorganized configuration for forecast modes, worker counts, partial years, interpolation, and output settings.
+
+### Dependencies and documentation
+
+- Set the supported Python version to 3.10 or newer.
+- Added `environment.yml`.
+- Updated Python dependencies.
+- Replaced Selenium image rendering with Playwright/Chromium.
+- Added Chromium installation instructions.
+- Added weekly pip Dependabot updates.
+- Updated `.gitignore` for local development-tool files.
 
 version 1.1.0
 ===============================
 * Updated to support Complete ERA5 Reanalysis on model levels
+
+version 1.0.0
+===============================
+* The original RadioWinds software

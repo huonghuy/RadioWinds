@@ -17,7 +17,7 @@ sys.path.append(os.path.dirname(os.path.abspath('/mnt/d/RadioWinds/config.py')))
 import config
 import utils
 
-FAA = "OAK"
+FAA = "PHTO"
 WMO = utils.lookupWMO(FAA)
 Station_Name = utils.lookupStationName(FAA)
 CO = utils.lookupCountry(FAA)
