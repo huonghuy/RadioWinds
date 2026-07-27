@@ -116,7 +116,8 @@ stations_df = stations_df.join(df_probabilities)
 
 
 
-#Convert Station Coordinates for mapping
+# Keep geographic coordinates in -180..180 for Cartopy. A separate 0..360
+# longitude is created below only for interpolation against the 0..360 grid.
 stations_df = utils.convert_stations_coords(stations_df)
 
 
@@ -130,9 +131,31 @@ print(stations_df)
 
 
 #stations_df.dropna(subset=[month], inplace = True)
-values = stations_df.loc[:,"average"].to_numpy()
-lonlat = stations_df[['lon_era5','lat_era5']]
+values = pd.to_numeric(stations_df.loc[:, "average"], errors="coerce").to_numpy()
+lonlat = stations_df[['lon_era5', 'lat_era5']].copy()
+valid = (
+    np.isfinite(values)
+    & np.isfinite(lonlat['lon_era5'].to_numpy())
+    & np.isfinite(lonlat['lat_era5'].to_numpy())
+)
+if valid.sum() < 2:
+    raise ValueError("Not enough valid stations to interpolate the burst map")
+
+values = values[valid]
+lonlat = lonlat.loc[valid].copy()
+lonlat['lon_era5'] = lonlat['lon_era5'] % 360
 points = lonlat.to_numpy()
+
+# A full-world grid has a numeric seam at 0/360 even though those meridians
+# are adjacent geographically. Cyclic copies let griddata select stations
+# across that seam. Regional grids do not need or receive these extra points.
+if max_lon - min_lon >= 360 - res:
+    points_west = points.copy()
+    points_west[:, 0] -= 360
+    points_east = points.copy()
+    points_east[:, 0] += 360
+    points = np.vstack([points_west, points, points_east])
+    values = np.tile(values, 3)
 
 zi = griddata(points,values,(grid_x, grid_y),method=method)
 

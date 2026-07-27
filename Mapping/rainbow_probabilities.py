@@ -152,6 +152,18 @@ for month in range (1,12+1):
     lonlat['lon_era5'] = lonlat['lon_era5'] % 360
     points = lonlat.to_numpy()
 
+    # A full-world grid has a numeric seam at 0/360 even though those
+    # meridians are adjacent geographically. Cyclic copies prevent stations
+    # near one side from being invisible to interpolation on the other side.
+    # Regional grids do not need or receive these extra points.
+    if max_lon - min_lon >= 360 - res:
+        points_west = points.copy()
+        points_west[:, 0] -= 360
+        points_east = points.copy()
+        points_east[:, 0] += 360
+        points = np.vstack([points_west, points, points_east])
+        values = np.tile(values, 3)
+
     zi = griddata(points,values,(grid_x, grid_y),method=method)
 
 

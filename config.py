@@ -6,13 +6,13 @@ from datetime import datetime, timedelta
 
 type = "ALT"                    # ALT or PRES
 mode = "radiosonde"                   # radiosonde or era5
-continent = 'North_America'     # 'All' will download every continent
+continent = 'South_America'     # 'All' will download every continent
                                 # Or you can do one at a time: 
                                 # See Radionsonde_Stations_Info/CLEANED/
                                 # May run into rate limits
 mapping_mode = mode             # mode or "diff"
 
-start_year = 2023
+start_year = 2015
 end_year = 2025
 
 # Permit ERA5 files that end before the configured calendar year is complete.
@@ -60,8 +60,8 @@ parent_folder = '/srv/shared/SOUNDINGS_DATA/'   # radiosonde only
 
 # Best to Change the analysis folders depending on which type of analsis you're doing
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-Test2' + '/'
-#analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-CALM' + '/'
-analysis_folder = parent_dir + mode + '_ANALYSIS_'  + type + '/'
+analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-CALM' + '/'
+#analysis_folder = parent_dir + mode + '_ANALYSIS_'  + type + '/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-BURST' + '/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-optimized-WH/'
 #analysis_folder = parent_dir + mode + '_ANALYSIS_' + type + '-Complete-lon-fix/'
