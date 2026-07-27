@@ -60,25 +60,36 @@ stations_df = pd.concat([stations_df, stations_df2])
 
 
 #Generate a new dataframe of montly probaibilties for each station to add to the stations_df. Take the max probability (per alt/pres)
-df_probabilities = pd.DataFrame(columns=[i for i in range(1,12)])
+month_columns = list(range(1, 13))
+probability_frames = []
+skipped_stations = []
 
 for row in stations_df.itertuples(index = 'WMO'):
     WMO = row.Index
     FAA = row.FAA
     Name = row.Station_Name
 
-    radiosonde_analysis = config.parent_dir + 'radiosonde' + '_ANALYSIS_' + 'PRES' + '/'
-    era5_analysis = config.parent_dir + 'era5' + '_ANALYSIS_' + 'PRES' + '/'
+    radiosonde_analysis = config.parent_dir + 'radiosonde_ANALYSIS_' + config.type + '/'
+    era5_analysis = config.parent_dir + 'era5_ANALYSIS_' + config.type + '/'
 
     analysis_folder = config.analysis_folder
 
     #file_name = analysis_folder[:-14]  + "analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
-    radiosonde = radiosonde_analysis + str(FAA) + " - " + str(WMO) + "/analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
-    era5 = era5_analysis + str(FAA) + " - " + str(WMO) + "/analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
+    radiosonde_path = radiosonde_analysis + str(FAA) + " - " + str(WMO) + "/analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
+    era5_path = era5_analysis + str(FAA) + " - " + str(WMO) + "/analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
 
+    required_paths = []
+    if config.mapping_mode in ("radiosonde", "diff"):
+        required_paths.append(radiosonde_path)
+    if config.mapping_mode in ("era5", "diff"):
+        required_paths.append(era5_path)
 
-    radiosonde = pd.read_csv(radiosonde, index_col=0 )
-    era5 = pd.read_csv(era5, index_col=0 )
+    missing_paths = [path for path in required_paths if not os.path.exists(path)]
+    if missing_paths:
+        skipped_stations.append((FAA, WMO, missing_paths))
+        print("Skipping " + str(FAA) + " - " + str(WMO) +
+              ": missing " + ", ".join(missing_paths))
+        continue
 
     print(FAA, Name)
 
@@ -87,11 +98,15 @@ for row in stations_df.itertuples(index = 'WMO'):
     #(radiosonde +.01)/(difference+.01) #make sure it's never 0.  Values should never be over 101?
 
     if config.mapping_mode == "radiosonde":
-        df = radiosonde
+        df = pd.read_csv(radiosonde_path, index_col=0)
     elif config.mapping_mode == "era5":
-        df = era5
+        df = pd.read_csv(era5_path, index_col=0)
     elif config.mapping_mode == "diff":
+        radiosonde = pd.read_csv(radiosonde_path, index_col=0)
+        era5 = pd.read_csv(era5_path, index_col=0)
         df = radiosonde - era5
+    else:
+        raise ValueError("Unsupported mapping_mode: " + str(config.mapping_mode))
 
 
     print(df)
@@ -102,8 +117,18 @@ for row in stations_df.itertuples(index = 'WMO'):
     df = df.rename(index={'max': WMO})
     df.index.set_names('WMO', level=None, inplace=True)
 
-    df_probabilities = pd.concat([df_probabilities, df], ignore_index=False)
+    probability_frames.append(df)
 
+if not probability_frames:
+    raise RuntimeError(
+        "No " + str(config.mapping_mode) + " " + str(config.type) +
+        " analysis files were found for " + str(year)
+    )
+
+if skipped_stations:
+    print("Skipped " + str(len(skipped_stations)) + " stations with missing inputs.")
+
+df_probabilities = pd.concat(probability_frames, ignore_index=False)
 stations_df = stations_df.join(df_probabilities)
 print(stations_df)
 
@@ -115,7 +140,7 @@ stations_df['  LAT'] = stations_df.apply(lambda x: (-1*x['  LAT'] if x['N'] == '
 
 
 #Drop any stations that collected no data for the entire year.
-stations_df.dropna(subset=df.columns[-12:], how = 'all', inplace = True)
+stations_df.dropna(subset=month_columns, how='all', inplace=True)
 
 
 
