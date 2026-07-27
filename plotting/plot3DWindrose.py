@@ -11,6 +11,8 @@ Analyze for opposing wind pairs at varrying altitudes.
 """
 
 from datetime import datetime
+from pathlib import Path
+import re
 
 from metpy.units import units
 
@@ -20,6 +22,16 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 import pandas as pd
 import config
+
+
+def windrose_output_path(station, date):
+    """Build a filesystem-safe output path from the station and sounding date."""
+    output_dir = Path("Pictures/3D-Windrose")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_station = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(station).strip())
+    timestamp = date.strftime("%Y-%m-%d-%H%M")
+    return output_dir / f"{safe_station}-{timestamp}.png"
 
 
 def interpolate(df, num_interpolations = 10):
@@ -85,17 +97,16 @@ def polar_interpolated_scatter_plot(df, fig, ax, station, date, num_interpolatio
     - num_interpolations: Number of altitude interpolations between each altitude level (default is 20).
     """
 
-    if not blowing_to:
-        df['direction'] = (df['direction'] - 180) % 360
-
-
     #df = df.drop(df[df['height'] < 10000].index)
     #df = df.drop(df[df['height'] > 25000].index)
 
     # Extract data from the DataFrame
     altitudes = df["height"].values
     wind_speeds = df["speed"].values
-    wind_directions_deg = df["direction"].values  # Wind direction in degrees
+    wind_directions_deg = df["direction"].to_numpy(copy=True)
+
+    if not blowing_to:
+        wind_directions_deg = (wind_directions_deg - 180) % 360
 
 
     # Create interpolated altitudes and corresponding wind data
@@ -261,7 +272,7 @@ def find_opposing_wind_ranges(df, threshold_speed, threshold_angle):
 if __name__=="__main__":
     # Create a datetime object for the sounding and string of the station identifier.
     date = datetime(2023, 10, 25, 12)
-    station = 'PHTO'
+    station = 'SBBV'
 
     pd.set_option("display.max_rows", None)
     # Make the request (a pandas dataframe is returned).
@@ -322,5 +333,9 @@ if __name__=="__main__":
     plt.xlabel("Lower Bound Altitude Pair")
     plt.ylabel("Upper Bound Altitude Pair")
     '''
+
+    output_path = windrose_output_path(station, date)
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    print("Saved windrose to " + str(output_path))
 
     plt.show()
