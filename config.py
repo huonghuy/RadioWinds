@@ -6,23 +6,19 @@ from datetime import datetime, timedelta
 
 type = "ALT"                    # ALT or PRES
 mode = "radiosonde"                   # radiosonde or era5
-continent = "South_America"     # 'All' will download every continent
-                                # Or you can do one at a time: North America, South America,
-                                # Europe, Asia, Africa, Australia, Antarctica
+continent = 'North_America'     # 'All' will download every continent
+                                # Or you can do one at a time: 
+                                # See Radionsonde_Stations_Info/CLEANED/
                                 # May run into rate limits
-mapping_mode = mode           # mode or "diff"
+mapping_mode = mode             # mode or "diff"
 
 start_year = 2023
-end_year = 2023
+end_year = 2025
 
 # Permit ERA5 files that end before the configured calendar year is complete.
 # The available months (including the final partial month) are exported, but no
 # annual result or completion marker is created until all 12 months exist.
 allow_partial_year = True
-
-monthly_export_color = True
-annual_export_color = True
-dfi_mode = "chrome"  # Default is "chrome" for Windows 11 and Ubuntu, WSL2 prefers "selenium"
 
 alt_step = 500                  # m
 min_alt = 15000                     # m
@@ -81,8 +77,8 @@ forecast = dict(
     # ERA5 data is stored one file per year. batchAnalysis rotates through
     # start_year..end_year, formatting this template with each year so it can
     # process multiple years' files in one run.
-    #file_template = "/srv/shared/ERA5_PRES/{year}/era5_{year}_complete.nc",
-    file_template = "/srv/shared/ERA5_COMP/{year}/{year}-ERA5-Complete.nc",
+    file_template = "/srv/shared/ERA5_PRES/{year}/era5_{year}_complete.nc",
+    #file_template = "/srv/shared/ERA5_COMP/{year}/{year}-ERA5-Complete.nc",
     #file_template = "/srv/shared/SOUNDINGS_DATA/",
 
     forecast_start_time = "2022-08-22 12:00:00", # used to build the default file path above
@@ -108,14 +104,6 @@ forecast = dict(
 forecast['file'] = forecast['file_template'].format(year=start_year)
 
 # ======================= ERA5 ====================================
-# ************************ ERA5 **********************************
-combined = False #DO NOT CHANGE
-era_file = "/srv/shared/FORECASTS/2023-ERA5-NORTH.nc"
-#era_file = "forecasts/" + "western_hemisphere-2022-North.nc"
-#era_file = "../../../../mnt/d/cds_api/" + "2023-ERA5-Complete.nc"
-#era_file = "../../../../mnt/d/FORECASTS/" + "2023-ERA5-North.nc"
-#era_file = "../../../../mnt/d/cds_api/" + "2022-ERA5-Complete-Mini.nc"
-#era_file = "../../../../mnt/d/FORECASTS/" + "optimized_ERA5-2022-WH.nc"
 
 # Mandatory pressure levels downloaded from ERA5  (~9.5km - 31km?)
 era5_pressure_levels = np.asarray([650,600,550,500,450,400, 350, 300, 250, 225, 200, 175, 150, 125, 100, 70, 50, 30, 20, 10])

@@ -1,13 +1,12 @@
 from siphonMulti import SiphonMulti
+import calendar
+from datetime import date, datetime, timezone
 import pandas as pd
-import os
 from termcolor import colored
 from pathlib import Path
 import traceback
-#from multiprocessing import Process, Manager
 import config
 import utils
-import sys
 
 """
 This script batch downloads every radiosonde file (one month at a time, and 
@@ -17,19 +16,19 @@ then parsing into individual flights .csv's).
         This script takes a while to run (up to an hour) depending on how many 
         stations and years are being downloaded
 
-.. tip:: 
-        If the download script hangs:
-            *End it
-            * run checkRadiosondeDownload.py
-            * Delete any [year] folders for that station that output red text
-            * Run again    
-        
-.. important:: 
-        Currently, this script checks to see if a year folder already exists for the
-        desired station and moves on if the folder exists. 
-        
-        Therefore, this script needs to be run in full to garuntee there's no missing
-        or incompletely downloaded months.
+Interrupted downloads can be rerun safely. Completed months are skipped, failed
+months are retried, and a year is marked complete only after all twelve months
+finish successfully.
+
+.. tip::
+        If the process is interrupted or Wyoming temporarily fails, rerun this
+        script normally. Do not delete the year folder: completed months will be
+        skipped and only incomplete months will be requested again.
+
+.. important::
+        Hidden ``.download_in_progress`` and ``.download_complete`` marker files
+        distinguish interrupted, empty, and completed months. Existing datasets
+        created before these markers were introduced remain supported.
 
 Make sure to set the following variables in config before running:
 * parent_dir
@@ -41,8 +40,68 @@ Make sure to set the following variables in config before running:
 
 """
 
+# Completion markers make an empty month unambiguous: an empty directory with a
+# complete marker means the server was queried successfully but returned no data.
+COMPLETE_MARKER = ".download_complete"
+IN_PROGRESS_MARKER = ".download_in_progress"
 
-def save_monthly_soundings(df_monthly_list, FAA, WMO, year, month):
+
+def _month_is_complete(month_folder, legacy_layout=False):
+    """Return whether a month is complete, upgrading legacy CSV folders."""
+    month_folder = Path(month_folder)
+
+    # An interrupted write always takes precedence over any CSVs left behind.
+    if (month_folder / IN_PROGRESS_MARKER).exists():
+        return False
+    if (month_folder / COMPLETE_MARKER).exists():
+        # Early Siphon 0.11 downloads used release hours (usually 11/23) in
+        # filenames. Treat them as incomplete so a rerun replaces them with the
+        # nominal 00/12 synoptic-cycle convention used throughout RadioWinds.
+        for csv_file in month_folder.glob("*.csv"):
+            try:
+                hour = int(csv_file.stem.rsplit("-", 1)[1])
+            except (IndexError, ValueError):
+                return False
+            if hour not in (0, 6, 12, 18):
+                return False
+        return True
+
+    # Older downloads have CSVs but no marker. Mark these as complete when the
+    # surrounding year is recognized as a legacy layout so they are not fetched again.
+    if legacy_layout and any(month_folder.glob("*.csv")):
+        (month_folder / COMPLETE_MARKER).touch()
+        return True
+    return False
+
+
+def _year_is_complete(data_folder):
+    """Recognize explicit completion and fully populated legacy year folders."""
+    data_folder = Path(data_folder)
+    month_folders = [data_folder / str(month) for month in range(1, 13)]
+
+    # Recheck month filenames even when a year marker exists so early Siphon 0.11
+    # 11/23 release-time downloads are automatically migrated on the next run.
+    if (data_folder / COMPLETE_MARKER).exists():
+        return all(_month_is_complete(folder) for folder in month_folders)
+
+    # A current-format year is complete only when all month markers exist.
+    if any((folder / IN_PROGRESS_MARKER).exists() for folder in month_folders):
+        return False
+    if any((folder / COMPLETE_MARKER).exists() for folder in month_folders):
+        return all((folder / COMPLETE_MARKER).exists() for folder in month_folders)
+
+    # Backward compatibility: the old downloader considered a year complete once
+    # all twelve month directories had been created, including valid empty months.
+    return all(folder.is_dir() for folder in month_folders)
+
+
+def _utc_today():
+    """Return the UTC date separately so current-year behavior is testable."""
+    return datetime.now(timezone.utc).date()
+
+
+def save_monthly_soundings(df_monthly_list, FAA, WMO, year, month,
+                           mark_complete=True):
     """
     Export a list of monthly radiosonde dataframes into individual CSVs in the data_folder
     specified in config.
@@ -50,22 +109,39 @@ def save_monthly_soundings(df_monthly_list, FAA, WMO, year, month):
     This function exports 1 month at a time.
     """
 
-    data_folder_month = utils.get_data_folder(FAA, WMO, year) + str(month) + "/"
+    data_folder_month = Path(utils.get_data_folder(FAA, WMO, year)) / str(month)
 
-    # New month folders are made, if they don't exist,  even if there's no radiosonde data to put inside
-    # in order to keep a standard format across all stations with varying data drop out periods over the months/years.
-    isExist = os.path.exists(data_folder_month)
-    if not isExist:
-        os.makedirs(data_folder_month)
+    # Always create the month folder, even for a valid month with no soundings, to
+    # retain the project's standard year/month directory structure.
+    data_folder_month.mkdir(parents=True, exist_ok=True)
+    in_progress = data_folder_month / IN_PROGRESS_MARKER
 
+    # The network request finishes before this function is called, so it is safe
+    # to replace the month's CSV set. This clears interrupted files and older
+    # 11/23 release-time filenames before writing normalized synoptic filenames.
+    for previous_csv in data_folder_month.glob("*.csv"):
+        previous_csv.unlink()
+    in_progress.touch()
+
+    # SiphonMulti returns one dataframe per sounding with time normalized to its
+    # nominal synoptic cycle; release_time retains the actual balloon release.
     if df_monthly_list is not None:
         for df in df_monthly_list:
             date = df.time[0]
 
-            filepath_sounding = Path(data_folder_month + str(FAA) + "-" + str(date.year) + "-" + str(
+            filepath_sounding = data_folder_month / (str(FAA) + "-" + str(date.year) + "-" + str(
                 date.month) + "-" + str(date.day) + "-" + str(date.hour) + '.csv')
             filepath_sounding.parent.mkdir(parents=True, exist_ok=True)
             df.to_csv(filepath_sounding)
+
+    # A current, still-growing month is saved but deliberately left incomplete so
+    # a later run refreshes it with newly available launches.
+    complete_marker = data_folder_month / COMPLETE_MARKER
+    if mark_complete:
+        complete_marker.touch()
+    else:
+        complete_marker.unlink(missing_ok=True)
+    in_progress.unlink()
 
 
 def get_yearly_soundings(FAA, WMO, year):
@@ -82,64 +158,97 @@ def get_yearly_soundings(FAA, WMO, year):
     :type year: int
 
     """
-    #Check if Soundings Data Folder exists:
+    data_folder = Path(utils.get_data_folder(FAA, WMO, year))
+    today = _utc_today()
 
-    data_folder = utils.get_data_folder(FAA, WMO, year)
-
-    # Check if the soundings have already been downloaded.
-    # not checking incomplete downloads yet.
-    isExist = os.path.exists(data_folder)
-    if isExist:
+    # Only past years can be permanently complete. A current-year marker from an
+    # older run is ignored so the current month can continue accumulating data.
+    if year < today.year and _year_is_complete(data_folder):
         print(colored("Soundings for " + str(FAA) + " - " + str(FAA) + " - " + str(WMO) + " in " + str(
             year) + " are downloaded locally", "green"))
+        return
 
-    else:
-        print(colored("Soundings for " + str(FAA) + " - " + str(FAA) + " - " + str(WMO) + " in " + str(
-            year) + " are not downloaded locally. \n Will continue to download for offline analysis", "yellow"))
+    print(colored("Soundings for " + str(FAA) + " - " + str(FAA) + " - " + str(WMO) + " in " + str(
+        year) + " are incomplete locally. \n Will continue downloading missing months", "yellow"))
 
-        yearly_count = 0
-        # Iterate by Month
-        for i in range(1,12+1):
+    month_folders = [data_folder / str(month) for month in range(1, 13)]
 
-            df_monthly_list = None
-            count = 0
-            missing_data = False
+    # This value is intentionally determined once. As legacy months are upgraded
+    # with markers during this run, the remaining legacy months must still be skipped.
+    legacy_layout = not any(
+        (folder / COMPLETE_MARKER).exists()
+        or (folder / IN_PROGRESS_MARKER).exists()
+        for folder in month_folders
+    )
+    yearly_count = 0
+    failed_months = []
+    pending_months = []
 
-            while df_monthly_list is None:
-                try:
-                    # If everything goes smooth
-                    # A list of radiosonde dataframes will be returned for a given moth
-                    df_monthly_list = SiphonMulti.request_data(year=year, month=i, site_id=WMO)
-                except ValueError as ve:
-                    # I have never seen this error actually trigger with monthly downloads, only
-                    # individual sounding downloads in the standard siphon.
-                    print(colored(ve, "red"))
-                    missing_data = True
-                    # df = pd.DataFrame()
-                    pass
-                except:
-                    # Sometimes the webserver at university of Wyoming Hangs.  But it almost always resolves eventually.
-                    # Keep trying until the data is downloaded.
-                    # The highest server error I've seen is 500.  The warning message shows which station is hanging for
-                    # individual download if necessary.
-                    count += 1
-                    # df = None
-                    if count % 50 == 0:
-                        print("SERVER ERRORS", count, "TRIES - ", FAA, WMO, "month", i)
-                        missing_data = True
+    # Work month-by-month so a rerun can skip successful work instead of starting
+    # the station/year again from January.
+    for month, month_folder in enumerate(month_folders, start=1):
+        first_day = date(year, month, 1)
+        last_day = date(year, month, calendar.monthrange(year, month)[1])
 
-            save_monthly_soundings(df_monthly_list, FAA, WMO, year, month = i)
+        # Future months are expected pending work, not download failures.
+        if first_day > today:
+            pending_months.append(month)
+            continue
 
-            if not missing_data:
-                result = ('Number of Monthly Soundings for '
-                          '{FAA}/{WMO} in {month}/{year} is {num_of_soundings}').format(FAA=FAA, WMO = WMO, year = year, month = i, num_of_soundings = len(df_monthly_list))
+        month_complete = last_day < today
+        if month_complete and _month_is_complete(
+                month_folder, legacy_layout=legacy_layout):
+            # Include existing files so the final annual count covers resumed months.
+            yearly_count += len(list(month_folder.glob("*.csv")))
+            continue
 
-                if config.logging:
-                    print(result)
-                # Always log yearly count
-                yearly_count += len(df_monthly_list)
+        try:
+            # SiphonMulti handles timestamp-level missing data and transient retries.
+            df_monthly_list = SiphonMulti.request_data(
+                year=year, month=month, site_id=WMO
+            )
+            save_monthly_soundings(
+                df_monthly_list, FAA, WMO, year, month,
+                mark_complete=month_complete,
+            )
+        except Exception as exc:
+            # Continue later months, then surface one summary failure to the station worker.
+            failed_months.append((month, exc))
+            print(colored(
+                f"DOWNLOAD FAILED for {FAA} - {WMO} in {year} month {month}: {exc!r}",
+                "red",
+            ))
+            continue
 
-        print("Total number of annual soundings download for", FAA, "-", WMO, "in", year, ":", yearly_count)
+        yearly_count += len(df_monthly_list)
+        if not month_complete:
+            pending_months.append(month)
+        if config.logging:
+            print(
+                f"Number of Monthly Soundings for {FAA}/{WMO} in "
+                f"{month}/{year} is {len(df_monthly_list)}"
+            )
+
+    print("Total number of annual soundings downloaded for", FAA, "-", WMO, "in", year, ":", yearly_count)
+
+    if failed_months:
+        months = ", ".join(str(month) for month, _exc in failed_months)
+        raise RuntimeError(
+            f"Station {FAA} - {WMO} failed for {year} month(s): {months}. "
+            "Rerun to resume those months."
+        ) from failed_months[0][1]
+
+    if pending_months:
+        months = ", ".join(str(month) for month in pending_months)
+        print(colored(
+            f"Year {year} remains partial; pending/current month(s): {months}",
+            "yellow",
+        ))
+        return
+
+    # The year marker is created only when all twelve months completed successfully.
+    data_folder.mkdir(parents=True, exist_ok=True)
+    (data_folder / COMPLETE_MARKER).touch()
 
 def _run_yearly_soundings(station_label, FAA, WMO, year):
     """

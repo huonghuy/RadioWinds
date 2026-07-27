@@ -23,10 +23,10 @@ stations_df = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent + ".cs
 
 # Uncomment this if South America has been downloaded and Analyzed as well
 #'''
-continent2 = "South_America"
-stations_df2 = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent2 + ".csv", index_col=1)
+#continent2 = "South_America"
+#stations_df2 = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent2 + ".csv", index_col=1)
 
-stations_df = pd.concat([stations_df, stations_df2])
+#stations_df = pd.concat([stations_df, stations_df2])
 
 stations_df = utils.convert_stations_coords(stations_df)
 

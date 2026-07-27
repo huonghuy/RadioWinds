@@ -10,7 +10,7 @@ from matplotlib.dates import YearLocator,  DateFormatter
 import os
 import pandas as pd
 
-FAA = "OAK"
+FAA = "SBBV"
 WMO = utils.lookupWMO(FAA)
 Station_Name = utils.lookupStationName(FAA)
 CO = utils.lookupCountry(FAA)
