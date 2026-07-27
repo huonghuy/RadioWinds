@@ -12,11 +12,15 @@ NOTE: THIS PROGRAM ASSUMES ALL RADIOSONDES HAVE BEEN DOWNLOADED IN THE
  This script has a significant runtime, especially if many stations are being analyzed.
  '''
 
+'''
+python -m analysis.analyzeMonthlyMeans-Zonal-QBO
+python -m plotting.hovmoller_qbo
+'''
 import pandas as pd
 import config
+import concurrent.futures
 import os
 from termcolor import colored
-import numpy as np
 
 #CONFIGURATION:
 pres = 70
@@ -28,6 +32,13 @@ def get_analysis_folder(FAA, WMO, year):
 
 def get_data_folder(FAA, WMO, year):
     return config.parent_folder + str(FAA) + " - " + str(WMO) + "/" + str(year) + "/"
+
+
+def empty_monthly_winds(month, year):
+    """Return the mandatory pressure grid with NaN winds for one month."""
+    avg = filter_pres_bins(None).set_index('pressure', drop=True)
+    return avg.add_suffix('_' + str(month) + '_' + str(year))
+
 
 def filter_pres_bins(df):
     pres_bins = [100., 70., 50., 30., 20.]
@@ -59,17 +70,27 @@ def filter_pres_bins(df):
 
 def getZonalWinds(year, FAA, WMO):
     data_folder = get_data_folder(FAA, WMO, year)
-    analysis_folder = get_analysis_folder(FAA, WMO, year)
 
     avg_list = []
+    missing_months = []
+
+    if not os.path.isdir(data_folder):
+        print(colored(
+            str(FAA) + " - " + str(WMO) + "/" + str(year) +
+            " Not Downloaded; filling year with NaN.",
+            "yellow",
+        ))
+        return pd.concat(
+            [empty_monthly_winds(month, year) for month in range(1, 13)],
+            axis=1,
+        )
 
     for j in range(1, 12 + 1):
         try:
             all_files = os.listdir(data_folder + str(j))
-        except:
-            print(colored(str(FAA) + " - " + str(WMO) + "/" + str(year) + " Not Downloaded.", "red"))
-            return False
-            #raise ValueError
+        except FileNotFoundError:
+            missing_months.append(j)
+            all_files = []
         csv_files = list(filter(lambda f: f.endswith('.csv'), all_files))
         csv_files.sort() #sort the list of CSVs to have the table in the right order
 
@@ -93,56 +114,106 @@ def getZonalWinds(year, FAA, WMO):
             #print(avg)
 
         else:
-            avg = filter_pres_bins(None)
-            avg = avg.set_index('pressure', drop=True)
-            avg = avg.add_suffix('_' + str(j) + '_' + str(year))
-            avg_list.append(avg)
+            avg_list.append(empty_monthly_winds(j, year))
             #print(avg)
+
+    if missing_months:
+        print(colored(
+            str(FAA) + " - " + str(WMO) + "/" + str(year) +
+            " missing months " + ", ".join(map(str, missing_months)) +
+            "; filling with NaN.",
+            "yellow",
+        ))
 
     avg_annual = pd.concat(avg_list, axis=1)
     return avg_annual
+
+
+def _get_station_pressure_row(station_index, year, FAA, WMO, pressure):
+    """Return one station-year pressure row; safe to call in a worker process."""
+    avg_annual = getZonalWinds(year, FAA=FAA, WMO=WMO)
+    return station_index, avg_annual.loc[pressure]
+
+
+def analyze_year(stations_df, year, pressure):
+    """Analyze one year sequentially or with the configured process pool."""
+    annual_rows = [None] * len(stations_df)
+
+    if config.parallelize:
+        num_workers = max(1, min(config.num_workers, len(stations_df)))
+        print(colored(
+            f"Analyzing {year} in parallel across {num_workers} workers",
+            "cyan",
+        ))
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
+            futures = {}
+            for i, row in enumerate(stations_df.itertuples(index=False)):
+                label = f"{row.FAA} - {row.WMO}"
+                future = executor.submit(
+                    _get_station_pressure_row,
+                    i,
+                    year,
+                    row.FAA,
+                    row.WMO,
+                    pressure,
+                )
+                futures[future] = label
+
+            completed = 0
+            for future in concurrent.futures.as_completed(futures):
+                label = futures[future]
+                try:
+                    station_index, pressure_row = future.result()
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"QBO analysis failed for {label}, year {year}"
+                    ) from exc
+
+                annual_rows[station_index] = pressure_row
+                completed += 1
+                print(f"Completed {completed}/{len(stations_df)}: {label} - {year}")
+    else:
+        print(colored(f"Analyzing {year} sequentially", "cyan"))
+        for i, row in enumerate(stations_df.itertuples(index=False)):
+            print("Averaging", i, row.WMO, row.FAA, "-", year, "-", pressure)
+            station_index, pressure_row = _get_station_pressure_row(
+                i,
+                year,
+                row.FAA,
+                row.WMO,
+                pressure,
+            )
+            annual_rows[station_index] = pressure_row
+
+    return pd.DataFrame(annual_rows, index=stations_df.index)
 
 #Main
 if __name__=="__main__":
     #continent = config.continent
     #stations_df = pd.read_csv('Radisonde_Stations_Info/CLEANED/' + continent + ".csv")
 
-    continent = "Antarctica"
-    stations_df = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent + ".csv")
-    # stations_df = stations_df.loc[stations_df["CO"] == "US"]
-
-    continent2 = "North_America"
-    stations_df2 = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent2 + ".csv")
-
-    stations_df = pd.concat([stations_df, stations_df2])
-    stations_df = stations_df.drop_duplicates(subset=['WMO'])
-    stations_df = stations_df.reset_index()
+    continents = ["North_America", "South_America"]
+    stations_df = pd.concat(
+        [
+            pd.read_csv(f"Radiosonde_Stations_Info/CLEANED/{continent}.csv")
+            for continent in continents
+        ],
+        ignore_index=True,
+    )
+    stations_df = stations_df.drop_duplicates(subset=["WMO"]).reset_index(drop=True)
 
     stations_df['lat_era5'] = stations_df.apply(lambda x: (-1 * x['  LAT'] if x['N'] == 'S' else 1 * x['  LAT']),
                                                 axis=1)
     stations_df['lon_era5'] = stations_df.apply(lambda x: (-1 * x[' LONG'] if x['E'] == 'W' else 1 * x[' LONG']),
                                                 axis=1)
 
-    stations_df_pres = stations_df.copy()
+    annual_frames = []
 
     for year in range(config.start_year, config.end_year + 1):
-        for i, row in enumerate(stations_df.itertuples(index=False)):
-            print("Averaging", i, row.WMO, row. FAA, "-", year, "-", pres)
-            avg_annual = getZonalWinds(year,
-                            WMO = row.WMO,
-                            FAA = row.FAA)
+        annual_frame = analyze_year(stations_df, year, pres)
+        annual_frames.append(annual_frame)
+        print(f"Completed {year}: {len(annual_frame)} stations")
 
-            #only need to do this the first time a new year
-            if i == 0:
-                stations_df_pres[avg_annual.columns.tolist()] = len(avg_annual.columns.tolist()) * [np.nan]
-                #print(stations_df_pres)
-
-            #row_pres = stations_df.loc[i].append(avg_annual.loc[pres])
-            row_pres = pd.concat([stations_df.loc[i],avg_annual.loc[pres]])
-            stations_df_pres.loc[i] = row_pres
-            #print(stations_df_pres)
-
-        print(stations_df_pres)
-        stations_df = stations_df_pres.copy()
-
+    stations_df_pres = pd.concat([stations_df, *annual_frames], axis=1)
     stations_df_pres.to_csv('QBO-Decadal-Means/stations_df_' + str(pres) + '.csv', index=False)
