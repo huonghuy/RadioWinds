@@ -104,7 +104,7 @@ for i in range (0,19+4):
     )
 
     #print(decadal_var)
-
+    decadal_mean.columns = pd.to_numeric(decadal_mean.columns)
     lats[i*5-55] = decadal_mean
 
 
@@ -112,7 +112,6 @@ if not lats:
     raise RuntimeError('No latitude bands contained usable annual CALM data.')
 
 month = lats[next(iter(lats))].iloc[:0]
-
 
 
 #sdfs
@@ -144,7 +143,8 @@ for i in range(1,13):
 
     plt.ylabel('Altitude (km)', fontsize=20)
     plt.xlabel('Latitude', fontsize=20)
-    plt.gca().set_ylim(bottom=20.) # wtf, why does 10=15 on the axis limits?  It's not index either?
+    ax.set_ylim(15, 28)  # altitude in km
+    #plt.gca().set_ylim(bottom=20.) # wtf, why does 10=15 on the axis limits?  It's not index either?
     #plt.ylim((15,28))
     plt.tight_layout()
     plt.savefig(fname = "Pictures/Calm-Winds/Decadal-Calm-Winds-Contour-Month-" + str(i) + ".png", bbox_inches='tight')
