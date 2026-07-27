@@ -58,16 +58,16 @@ lats = np.arange(min_lat,max_lat,res)
 grid_x, grid_y = np.meshgrid(lons, lats)
 
 #--------------------------
+'''
 continent = "North_America"
 stations_df = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent + ".csv", index_col=1)
 
 # Uncomment this if South America has been downloaded and Analyzed as well
-#'''
+
 continent2 = "South_America"
 stations_df2 = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent2 + ".csv", index_col=1)
-
-#stations_df = utils.getWorldStations()
-stations_df = pd.concat([stations_df, stations_df2])
+'''
+stations_df = utils.getWorldStations()#stations_df = pd.concat([stations_df, stations_df2])
 #'''
 
 #Generate a new dataframe of montly probaibilties for each station to add to the stations_df. Take the max probability (per alt/pres)
@@ -119,7 +119,8 @@ print(stations_df)
 #stations_df[' LONG'] = stations_df.apply(lambda x: (360-x[' LONG'] if x['E'] == 'W' else 1*x[' LONG']), axis = 1)
 #stations_df['  LAT'] = stations_df.apply(lambda x: (-1*x['  LAT'] if x['N'] == 'S' else 1*x['  LAT']), axis = 1)
 
-#Convert Station Coordinates for mapping
+# Keep geographic coordinates in -180..180 for Cartopy. A separate 0..360
+# longitude is created below only for interpolation against the 0..360 grid.
 stations_df = utils.convert_stations_coords(stations_df)
 
 
@@ -131,8 +132,24 @@ stations_df.dropna(subset=df.columns[-12:], how = 'all', inplace = True)
 # Make a new plot for each month
 for month in range (1,12+1):
     #stations_df.dropna(subset=[month], inplace = True)
-    values = stations_df.loc[:,month].to_numpy()
-    lonlat = stations_df[['lon_era5','lat_era5']]
+    values = pd.to_numeric(stations_df.loc[:, month], errors="coerce").to_numpy()
+    lonlat = stations_df[['lon_era5', 'lat_era5']].copy()
+    valid = (
+        np.isfinite(values)
+        & np.isfinite(lonlat['lon_era5'].to_numpy())
+        & np.isfinite(lonlat['lat_era5'].to_numpy())
+    )
+    if valid.sum() < 2:
+        print("Skipping month " + str(month) + ": not enough valid stations")
+        continue
+
+    values = values[valid]
+    lonlat = lonlat.loc[valid].copy()
+    # The interpolation grid uses 0..360 longitudes, while
+    # convert_stations_coords returns -180..180. Wrap only the interpolation
+    # copy so its coordinates match the grid; keep the original geographic
+    # longitudes for plotting station markers below.
+    lonlat['lon_era5'] = lonlat['lon_era5'] % 360
     points = lonlat.to_numpy()
 
     zi = griddata(points,values,(grid_x, grid_y),method=method)
@@ -142,10 +159,10 @@ for month in range (1,12+1):
     #extent = [-125 , -70, 20, 50]
 
     # Western Hemisphere
-    #extent = [-170, -20, -25, 40]
+    extent = [-170, -20, -25, 40]
 
     # World
-    extent = [-180, 180, -90, 90]
+    #extent = [-180, 180, -90, 90]
 
 
     central_lon = np.mean(extent[:2])
