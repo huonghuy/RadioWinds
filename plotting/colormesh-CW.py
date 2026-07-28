@@ -8,6 +8,7 @@ import os
 import matplotlib.pyplot as plt
 import config
 import glob
+import re
 import utils
 
 font = {'size'   : 22}
@@ -23,9 +24,23 @@ overall_min = 1
 # from config.analysis_folder when config is set up for another analysis.
 calm_analysis_folder = os.path.join(
     config.parent_dir,
-    config.mode + '_ANALYSIS_' + config.type + '-CALM',
+    config.calm_mode + '_ANALYSIS_' + config.type + '-CALM',
 )
-annual_calm_files = glob.glob(os.path.join(calm_analysis_folder, '*', '*CALM.csv'))
+annual_pattern = re.compile(r"^analysis_(\d{4})-wind_probabilities-CALM\.csv$")
+
+
+def annual_calm_files_for(path):
+    files = []
+    for filename in glob.glob(os.path.join(path, '*CALM.csv')):
+        match = annual_pattern.fullmatch(os.path.basename(filename))
+        if match and config.start_year <= int(match.group(1)) <= config.end_year:
+            files.append(filename)
+    return sorted(files)
+
+
+annual_calm_files = []
+for station_path in glob.glob(os.path.join(calm_analysis_folder, '*')):
+    annual_calm_files.extend(annual_calm_files_for(station_path))
 if not annual_calm_files:
     raise FileNotFoundError(
         'No annual calm-wind CSV files were found under '
@@ -43,6 +58,7 @@ continent2 = "South_America"
 stations_df2 = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent2 + ".csv", index_col=1)
 
 stations_df = pd.concat([stations_df, stations_df2])
+stations_df = stations_df[~stations_df.index.duplicated(keep='first')]
 
 stations_df = utils.convert_stations_coords(stations_df)
 
@@ -61,7 +77,7 @@ for i in range (0,19+4):
     for index, row in lat_range.iterrows():
         path = os.path.join(calm_analysis_folder, str(row.FAA) + " - " + str(index))
 
-        files += glob.glob(os.path.join(path, "*CALM.csv"))  # only include total probabilities maps
+        files += annual_calm_files_for(path)
 
     if not files:
         print('Skipping latitude band ' + str(i*5-55) + ' to ' + str(i*5-50)
@@ -138,8 +154,7 @@ for i in range(1,13):
 
     Months = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
               'November', 'December']
-    plt.title(Months[i], fontsize=30)
-    #plt.title("Decadal Calm Winds Probability Distribution - Month " + str(i)  + " [2012-2023]", fontsize=12)
+    plt.title(Months[i] + " " + config.plot_year_range_label, fontsize=30)
 
     plt.ylabel('Altitude (km)', fontsize=20)
     plt.xlabel('Latitude', fontsize=20)
@@ -147,7 +162,16 @@ for i in range(1,13):
     #plt.gca().set_ylim(bottom=20.) # wtf, why does 10=15 on the axis limits?  It's not index either?
     #plt.ylim((15,28))
     plt.tight_layout()
-    plt.savefig(fname = "Pictures/Calm-Winds/Decadal-Calm-Winds-Contour-Month-" + str(i) + ".png", bbox_inches='tight')
+    output_folder = "Pictures/Calm-Winds"
+    os.makedirs(output_folder, exist_ok=True)
+    plt.savefig(
+        fname=os.path.join(
+            output_folder,
+            config.calm_mode + "-" + config.type + "-calm-winds-"
+            + config.plot_year_range_token + "-month-" + str(i) + ".png",
+        ),
+        bbox_inches='tight',
+    )
 
     #plt.show()
 
@@ -165,7 +189,7 @@ print(df_lat)
 for dir in os.listdir(calm_analysis_folder):
     #dir = "PABR - 70026"
     path = os.path.join(calm_analysis_folder, dir)
-    files = glob.glob(os.path.join(path, "*CALM.csv"))  # only include total probabilities maps
+    files = annual_calm_files_for(path)
     dfs = [pd.read_csv(f, low_memory=False, index_col=0) for f in files]
     print(dir)
 
@@ -230,14 +254,16 @@ for dir in os.listdir(calm_analysis_folder):
 
 
     utils.export_colored_dataframes(decadal_mean,
-                                    title = 'Calm Wind Probabilities MEANS for Station ' + dir + ' for 2012-2023',
+                                    title='Calm Wind Probabilities MEANS for Station ' + dir
+                                    + ' for ' + config.plot_year_range_label,
                                     path = path,
                                     suffix = 'analysis-wind_probabilities-DECADAL-MEAN',
                                     export_color=False)
 
 
     utils.export_colored_dataframes(decadal_statistics,
-                                    title='calm Wind Probabilities Decadal Statistics for Station ' + dir + ' for 2012-2023',
+                                    title='Calm Wind Probabilities Statistics for Station ' + dir
+                                    + ' for ' + config.plot_year_range_label,
                                     path=path,
                                     suffix='analysis-wind_probabilities-DECADAL-STATISTICS',
                                     precision = 2,

@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from matplotlib.dates import MonthLocator, YearLocator, WeekdayLocator, DateFormatter
 import matplotlib.ticker as ticker
 
-FAA = "PHTO"
+FAA = config.plot_station
 WMO = utils.lookupWMO(FAA)
 Station_Name = utils.lookupStationName(FAA)
 CO = utils.lookupCountry(FAA)
@@ -78,11 +78,12 @@ im = ax.pcolormesh(
 
 hemisphere = "N" if lat >= 0 else "S"
 plt.title(
-    f"{Station_Name} - {CO} (Station #{str(WMO).zfill(5)}) - {abs(int(lat))}°{hemisphere}",
+    f"{Station_Name} - {CO} (Station #{str(WMO).zfill(5)}) - {abs(int(lat))}°{hemisphere}\n"
+    f"Opposing Wind Probability, {config.plot_year_range_label}",
     fontsize=12,
 )
 
-plt.ylabel('Altitude (km)')
+plt.ylabel('Altitude (km)' if config.type == 'ALT' else 'Pressure (hPa)')
 plt.xlabel('Date')
 
 
@@ -113,10 +114,9 @@ folder_path = "Pictures/Hovmoller-OW/" # + str(FAA) + "/"
 if not os.path.exists(folder_path):
         os.makedirs(folder_path)
 
-if config.start_year == config.end_year:
-    plt.savefig(folder_path + str(config.mode) + "-optimized-WH-" + str(config.type) + "-" + str(FAA)+ "-" + str(config.start_year),
-                bbox_inches='tight')
-else:
-    plt.savefig(folder_path + str(config.mode) + "-optimized-WH-" + str(config.type) + "-" + str(FAA)+ "-DECADAL",
-                bbox_inches='tight')
+plt.savefig(
+    folder_path + str(config.mode) + "-" + str(config.type) + "-" + str(FAA)
+    + "-" + config.plot_year_range_token + ".png",
+    bbox_inches='tight',
+)
 plt.show()

@@ -16,7 +16,7 @@ import matplotlib.ticker as ticker
 from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
 
 #Plotting Variables:
-pres = 70
+pres = config.qbo_pressure
 
 
 df = pd.read_csv('QBO-Decadal-Means/stations_df_' + str(pres) + '.csv')
@@ -70,7 +70,6 @@ cax = divider.append_axes("right", "1%", pad="3%")
 #im.set_clim(0.,1.)
 fig.colorbar(im, cax=cax)
 
-#plt.title(str(pres) + " mb QBO from Monthly Averages of Radiosondes launched Over Land in the Western Hemisphere [2012-2023]", fontsize=12)
 #plt.xlabel('Date')
 
 ax.xaxis.set_major_locator(YearLocator(1))

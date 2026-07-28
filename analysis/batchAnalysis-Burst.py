@@ -49,6 +49,25 @@ def reinitializeProbabilities():
     return wind_probabilities
 
 
+def burst_monthly_path(FAA, WMO, year, month):
+    return os.path.join(
+        utils.get_analysis_folder(FAA, WMO, year),
+        f"{FAA} - {WMO}-{year}-{month}-BURST.csv",
+    )
+
+
+def burst_monthly_complete(FAA, WMO, year):
+    return all(os.path.exists(burst_monthly_path(FAA, WMO, year, month))
+               for month in range(1, 13))
+
+
+def annual_burst_has_data(path):
+    if not os.path.exists(path):
+        return False
+    frame = pd.read_csv(path, index_col=0).apply(pd.to_numeric, errors="coerce")
+    return frame.notna().any().any()
+
+
 def determine_wind_statistics(df, min_alt=15000, max_alt=28000, min_pressure=20, max_pressure=125,
                               alt_step=500, n_sectors=16, speed_threshold=2):
 
@@ -84,13 +103,13 @@ def save_wind_probabilties(FAA, WMO, wind_probabilities, analysis_folder, date):
     wind_probabilities = pd.concat([wind_probabilities, wind_probabilities.apply(['average'])])
 
     print(colored(
-        "Processing Calm Winds data for Station-" + str(FAA) + " - " + str(WMO) +
+        "Processing Burst data for Station-" + str(FAA) + " - " + str(WMO) +
         " Year-" + str(date.year) + " Month-" + str(date.month),
         "cyan"))
 
 
     utils.export_colored_dataframes(wind_probabilities,
-                                    title='Opposing Wind Probabilities for Station ' + str(FAA) + " - " + str(WMO) +
+                                    title='Monthly Burst Altitudes for Station ' + str(FAA) + " - " + str(WMO) +
                                           ' in Month ' + str(date.month) + ' - ' + str(date.year),
                                     path=analysis_folder,
                                     suffix=str(FAA) + " - " + str(WMO) + "-" + str(date.year) + "-" + str(date.month) + "-BURST",
@@ -121,15 +140,18 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
     analysis_folder = utils.get_analysis_folder(FAA, WMO, year)
 
     # Check if monthly sounding data has already been analyzed.  If so, skip
-    if utils.check_analyzed(FAA, WMO, year,
-                            path=utils.get_analysis_folder(FAA, WMO, year),
-                            category="monthly"):
+    if burst_monthly_complete(FAA, WMO, year):
+        print(colored(
+            f"{FAA}-{WMO}/{year} monthly BURST data already analyzed.",
+            "green",
+        ))
         return True
 
     # Iterate by month and day for a particular year.
     for j in range (1,12+1):
         # Reinitialize dataframes
         wind_probabilities = reinitializeProbabilities()
+        date = datetime(year, j, 1, 0)
 
         try:
             all_files = os.listdir(data_folder + str(j))
@@ -162,7 +184,6 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
                     pass
 
         else:
-            date = datetime(year, j, 1, 00)  # day and time shouldn't matter
             wind_probabilities.loc[date, :] = np.NAN
 
             if config.logging:
@@ -190,7 +211,7 @@ def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
 
     analysis_folder = utils.get_analysis_folder(FAA, WMO, year)
 
-    files = [f for f in listdir(analysis_folder) if f.endswith(".csv")]
+    files = [f for f in listdir(analysis_folder) if f.endswith("-BURST.csv")]
 
     annual_probabilities = reinitializeProbabilities()
 
@@ -212,8 +233,8 @@ def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
 
     # Export the annual charts in the station folder as well, for quicker inspection.
     utils.export_colored_dataframes(annual_probabilities,
-                                    title='Opposing Wind Probabilities for Station ' + str(FAA) + " - " + str(
-                                        WMO) + ' 12Z in ' + str(year),
+                                    title='Monthly Burst Altitudes for Station ' + str(FAA) + " - " + str(
+                                        WMO) + ' in ' + str(year),
                                     path=config.analysis_folder + str(FAA) + " - " + str(WMO) + "/",
                                     suffix="analysis_" + str(year) + '-wind_probabilities-BURST',
                                     export_color=config.annual_export_color)
@@ -239,10 +260,12 @@ def batch_analysis(year, WMO, FAA, lat, lon, min_alt, max_alt,
                                                       speed_threshold=speed_threshold)
 
     # Check if Annual Data for a station and year has already been analyzed by checking if the directory exists.
-    annual_analyzed_status = utils.check_analyzed(FAA, WMO, year,
-                                                  path=utils.get_analysis_folder(FAA, WMO, year)[:-14] + "analysis_" +
-                                                                                 str(year) + '-wind_probabilities-BURST.csv',
-                                                  category="annual")
+    annual_path = os.path.join(
+        config.analysis_folder,
+        str(FAA) + " - " + str(WMO),
+        "analysis_" + str(year) + "-wind_probabilities-BURST.csv",
+    )
+    annual_analyzed_status = annual_burst_has_data(annual_path)
 
     if not annual_analyzed_status and monthly_analyzed_status:
         analyze_annual_data(FAA, WMO, year, min_alt=min_alt, max_alt=max_alt, min_pressure=min_pressure,

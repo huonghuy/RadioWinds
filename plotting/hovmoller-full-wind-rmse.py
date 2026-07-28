@@ -7,7 +7,7 @@ import utils
 import os
 import config
 
-FAA = "SLC"
+FAA = config.plot_station
 WMO = utils.lookupWMO(FAA)
 Station_Name = utils.lookupStationName(FAA)
 CO = utils.lookupCountry(FAA)
@@ -18,7 +18,7 @@ print(WMO, FAA, Station_Name, lat,lon,el)
 path = "Pictures/Data-Hovmoller/"
 # Load the CSV files
 era5_file = path + FAA + "-" + str(config.start_year) + "-era5.csv"
-radiosonde_file = path + FAA + "-" + str(config.start_year) + "-radiosonde.csv"
+radiosonde_file = path + FAA + "-" + config.plot_year_range_token + "-radiosonde.csv"
 
 era5_df = pd.read_csv(era5_file)
 radiosonde_df = pd.read_csv(radiosonde_file)
@@ -139,7 +139,11 @@ if not isExist:
     # Create a new directory because it does not exist
     os.makedirs(path)
 #plt.savefig("Pictures/Hovmoller/" +  str(FAA), bbox_inches='tight')
-plt.savefig(path + str(FAA) + "-" + str(config.start_year), bbox_inches='tight')
+plt.savefig(
+    path + str(FAA) + "-radiosonde-" + config.plot_year_range_token
+    + "-era5-" + str(config.start_year),
+    bbox_inches='tight',
+)
 fig.tight_layout()
 plt.show()
 #dfgdfg

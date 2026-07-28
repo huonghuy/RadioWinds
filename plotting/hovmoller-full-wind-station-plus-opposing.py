@@ -10,7 +10,7 @@ from matplotlib.dates import YearLocator,  DateFormatter
 import config
 import utils
 
-FAA = "SBBV"
+FAA = config.plot_station
 WMO = utils.lookupWMO(FAA)
 Station_Name = utils.lookupStationName(FAA)
 CO = utils.lookupCountry(FAA)
@@ -123,7 +123,7 @@ im = ax.pcolormesh(
 #plt.title("Hilo, Hawaii USA (15$^\circ$N)" +
 #plt.title("Wind Directionality for Station " + FAA +  " in " + str(config.start_year), fontsize=13)
 hemisphere = "N" if lat >= 0 else "S"
-period = str(config.start_year) if config.start_year == config.end_year else f"{config.start_year}–{config.end_year}"
+period = config.plot_year_range_label
 plt.title(
     f"{Station_Name} - {CO} (Station #{str(WMO).zfill(5)}) - {abs(int(lat))}°{hemisphere}"
     f"\nWind Directionality, {period}",
@@ -172,5 +172,5 @@ plt.margins(0.1)
 #plt.bbox_inches='tight'
 path = "Pictures/Hovmoller-Full-Winds-Plus_Opposing/"
 os.makedirs(path, exist_ok=True)
-plt.savefig(path + str(FAA) + "-" + str(config.start_year), bbox_inches='tight')
-plt.show()
+plt.savefig(path + str(FAA) + "-" + config.plot_year_range_token, bbox_inches='tight')
+plt.show()

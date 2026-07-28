@@ -26,7 +26,7 @@ pd.set_option('display.max_rows', 600)
 #MAP CONFIGURATION STUFF:
 method = 'nearest'
 year = config.start_year
-prefix = "World-BURST-2023-no-text"  #title of the maps that are exported to the MAPS folder
+prefix = "World-BURST-no-text"  # title of the maps exported to the MAPS folder
 
 #These are the values download from Copernicus for 2022 in degrees
 
@@ -60,35 +60,42 @@ grid_x, grid_y = np.meshgrid(lons, lats)
 
 
 stations_df = utils.getWorldStations()
+stations_df = stations_df[~stations_df.index.duplicated(keep="first")]
 
-print(stations_df)
+print("Loaded " + str(len(stations_df)) + " unique world-station records.")
 
 
 #Generate a new dataframe of montly probaibilties for each station to add to the stations_df. Take the max probability (per alt/pres)
-df_probabilities = pd.DataFrame(columns=[i for i in range(1,12)])
+month_columns = list(range(1, 13))
+probability_rows = []
+missing_files = 0
+empty_files = 0
 
 for row in stations_df.itertuples(index = 'WMO'):
     WMO = row.Index
     FAA = row.FAA
     Name = row.Station_Name
 
-    analysis_folder = config.analysis_folder
+    file_name = os.path.join(
+        config.analysis_folder,
+        str(FAA) + " - " + str(WMO),
+        "analysis_" + str(year) + "-wind_probabilities-BURST.csv",
+    )
+    if not os.path.exists(file_name):
+        missing_files += 1
+        continue
 
-    #file_name = analysis_folder[:-14]  + "analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
-    #file_name = analysis_folder + str(FAA) + " - " + str(WMO) + "/analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
-    #file_name = analysis_folder + str(FAA) + " - " + str(WMO) + "/analysis_" + str(year) + '-wind_probabilities-CALM.csv'
-    file_name = analysis_folder + str(FAA) + " - " + str(WMO) + "/analysis_" + str(year) + '-wind_probabilities-BURST.csv'
-
-    df = pd.read_csv(file_name, index_col=0 )
-
-
-    # Opposing Winds
-    #'''
-    df = df.T
-    df = df.apply(['max'])
-    df = df.rename(index={'max': WMO})
-    df.index.set_names('WMO', level=None, inplace=True)
-    #'''
+    df = pd.read_csv(file_name, index_col=0)
+    df.index = pd.to_numeric(df.index, errors="coerce")
+    monthly_burst = df.apply(pd.to_numeric, errors="coerce").max(axis=1)
+    monthly_burst = monthly_burst[monthly_burst.index.notna()]
+    monthly_burst.index = monthly_burst.index.astype(int)
+    monthly_burst = monthly_burst.reindex(month_columns)
+    if monthly_burst.isna().all():
+        empty_files += 1
+        continue
+    monthly_burst.name = WMO
+    probability_rows.append(monthly_burst)
 
     # Calm Winds
     '''
@@ -103,8 +110,21 @@ for row in stations_df.itertuples(index = 'WMO'):
     '''
 
 
-    df_probabilities = pd.concat([df_probabilities, df], ignore_index=False)
-    df_probabilities['average'] = df_probabilities.mean(axis=1)
+if not probability_rows:
+    raise RuntimeError(
+        "No populated BURST analysis files were found for " + str(year) + ". "
+        + str(missing_files) + " station files were missing and "
+        + str(empty_files) + " were empty. Run analysis/batchAnalysis-Burst.py "
+        "for this year before generating the map."
+    )
+
+df_probabilities = pd.DataFrame(probability_rows).reindex(columns=month_columns)
+df_probabilities.index.name = "WMO"
+df_probabilities["average"] = df_probabilities.mean(axis=1)
+print(
+    "Loaded " + str(len(df_probabilities)) + " populated BURST station files; skipped "
+    + str(missing_files) + " missing and " + str(empty_files) + " empty files."
+)
 
 stations_df = stations_df.join(df_probabilities)
 
@@ -122,7 +142,7 @@ stations_df = utils.convert_stations_coords(stations_df)
 
 
 #Drop any stations that collected no data for the entire year.
-stations_df.dropna(subset=df.columns[-12:], how = 'all', inplace = True)
+stations_df.dropna(subset=month_columns, how="all", inplace=True)
 
 
 stations_df = stations_df.drop_duplicates()
@@ -220,7 +240,6 @@ D = ax.scatter(stations_df['lon_era5'], stations_df['lat_era5'], marker = ".", c
 #ax.scatter(stations_df['lon_era5'], stations_df['lat_era5'], marker = ".", c = "cyan", s= 4, transform = ccrs.Geodetic(), zorder=200)
 
 #print(stations_df.iloc[3])
-print(stations_df.iloc[3]['lon_era5'])
 #for i, txt in enumerate(stations_df['average'] ):
 #    ax.annotate(txt, (stations_df.iloc[i]['lon_era5'], stations_df.iloc[3]['lat_era5']), transform = ccrs.Geodetic())
 
@@ -253,6 +272,11 @@ if not isExist:
 
 #Weird windows bug where this doesn't overwrite teh saved fig date, but the file changes?
 #plt.savefig(path + prefix + "_" + config.type+ "_" + config.mode + "-" + str(year) + '-' + str(month)+ "-CALM")
-plt.savefig(path + prefix + "_" + config.type + "_" + config.mode + "-" + str(year) + '-AVERAGE', bbox_inches='tight')
+output_file = os.path.join(
+    path,
+    prefix + "_" + config.type + "_" + config.mode + "-" + str(year) + "-AVERAGE.png",
+)
+plt.savefig(output_file, bbox_inches="tight")
+print("Saved " + output_file)
 #plt.show()
 plt.close()

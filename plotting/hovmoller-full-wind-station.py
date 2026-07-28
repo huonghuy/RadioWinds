@@ -17,7 +17,7 @@ sys.path.append(os.path.dirname(os.path.abspath('/mnt/d/RadioWinds/config.py')))
 import config
 import utils
 
-FAA = "PHTO"
+FAA = config.plot_station
 WMO = utils.lookupWMO(FAA)
 Station_Name = utils.lookupStationName(FAA)
 CO = utils.lookupCountry(FAA)
@@ -102,7 +102,7 @@ isExist = os.path.exists(path)
 if not isExist:
     # Create a new directory because it does not exist
     os.makedirs(path)
-decadal_df.to_csv(path +  str(FAA) + "-" + str(config.start_year) + "-radiosonde.csv")
+decadal_df.to_csv(path + str(FAA) + "-" + config.plot_year_range_token + "-radiosonde.csv")
 
 
 
@@ -195,7 +195,7 @@ im = ax.pcolormesh(
 )
 
 hemisphere = "N" if lat >= 0 else "S"
-period = str(config.start_year) if config.start_year == config.end_year else f"{config.start_year}–{config.end_year}"
+period = config.plot_year_range_label
 plt.title(
     f"{Station_Name} - {CO} (Station #{str(WMO).zfill(5)}) - {abs(int(lat))}°{hemisphere}"
     f"\nWind Directionality, {period}",
@@ -232,7 +232,7 @@ isExist = os.path.exists(path)
 if not isExist:
     # Create a new directory because it does not exist
     os.makedirs(path)
-plt.savefig(path + str(FAA) + "-" + str(config.start_year), bbox_inches='tight')
+plt.savefig(path + str(FAA) + "-" + config.plot_year_range_token, bbox_inches='tight')
 print("Saving...")
 #plt.savefig(path +  str(FAA) + "-" + str(config.start_year) + "-NO-TITLE", bbox_inches='tight')
 plt.show()

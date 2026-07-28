@@ -116,6 +116,18 @@ if mode == "era5":
 
 # ======================= Other ===================================
 
+# Shared inputs used by the standalone plotting scripts.
+plot_station = "SBBV"
+windrose_date = datetime(2023, 10, 25, 12)
+qbo_pressure = 70
+calm_mode = "radiosonde"
+plot_year_range_label = (
+    str(start_year) if start_year == end_year else f"{start_year}–{end_year}"
+)
+plot_year_range_token = (
+    str(start_year) if start_year == end_year else f"{start_year}-{end_year}"
+)
+
 # Default is blowing to for path planning
 blowing_to = True               # False (typical wind rose); True (direction balloon will drift in, opposite)
 g = 9.80665

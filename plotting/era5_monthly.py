@@ -31,6 +31,7 @@ continent2 = "South_America"
 stations_df2 = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent2 + ".csv", index_col=1)
 
 stations_df = pd.concat([stations_df, stations_df2])
+stations_df = stations_df[~stations_df.index.duplicated(keep='first')]
 #'''
 
 
@@ -39,12 +40,9 @@ stations_df = utils.convert_stations_coords(stations_df)
 print(stations_df)
 
 #Generate a new dataframe of montly probaibilties for each station to add to the stations_df. Take the max probability (per alt/pres)
-df_error = pd.DataFrame(columns=[i for i in range(1,12)])
-
-df_era5 = pd.DataFrame(columns=[i for i in range(1,12)])
-df_radiosonde = pd.DataFrame(columns=[i for i in range(1,12)])
-
-print(df_radiosonde)
+month_columns = list(range(1, 13))
+era5_frames = []
+radiosonde_frames = []
 
 stations_df_radiosonde = stations_df.copy()
 stations_df_era5 = stations_df.copy()
@@ -58,18 +56,27 @@ for row in stations_df.itertuples(index = 'WMO'):
     FAA = row.FAA
     Name = row.Station_Name
 
-    radiosonde_analysis = config.parent_dir  + 'radiosonde' + '_ANALYSIS_' + 'ALT' + '/'
-    era5_analysis = config.parent_dir + 'era5' + '_ANALYSIS_' + 'ALT-new' + '/'
+    radiosonde_analysis = config.parent_dir + 'radiosonde_ANALYSIS_' + config.type + '/'
+    era5_analysis = config.parent_dir + 'era5_ANALYSIS_' + config.type + '/'
 
     analysis_folder = config.analysis_folder
 
     #file_name = analysis_folder[:-14]  + "analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
-    radiosonde = radiosonde_analysis + str(FAA) + " - " + str(WMO) + "/analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
-    era5 = era5_analysis + str(FAA) + " - " + str(WMO) + "/analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
+    radiosonde_path = radiosonde_analysis + str(FAA) + " - " + str(WMO) + "/analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
+    era5_path = era5_analysis + str(FAA) + " - " + str(WMO) + "/analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
 
+    missing_paths = [path for path in (radiosonde_path, era5_path) if not os.path.exists(path)]
+    if missing_paths:
+        print("Skipping " + str(FAA) + " - " + str(WMO) +
+              ": missing " + ", ".join(missing_paths))
+        continue
 
-    radiosonde = pd.read_csv(radiosonde, index_col=0 )
-    era5 = pd.read_csv(era5, index_col=0 )
+    radiosonde = utils.subset_probability_columns(
+        pd.read_csv(radiosonde_path, index_col=0)
+    )
+    era5 = utils.subset_probability_columns(
+        pd.read_csv(era5_path, index_col=0)
+    )
 
     print(FAA, Name)
     #print(radiosonde)
@@ -87,7 +94,7 @@ for row in stations_df.itertuples(index = 'WMO'):
     df = df.rename(index={'max': WMO})
     df.index.set_names('WMO', level=None, inplace=True)
 
-    df_era5 = pd.concat([df_era5, df], ignore_index=False)
+    era5_frames.append(df)
 
     #--------------------------------------
 
@@ -101,11 +108,18 @@ for row in stations_df.itertuples(index = 'WMO'):
     df = df.rename(index={'max': WMO})
     df.index.set_names('WMO', level=None, inplace=True)
 
-    df_radiosonde = pd.concat([df_radiosonde, df], ignore_index=False)
+    radiosonde_frames.append(df)
 
-    df_error = df_radiosonde-df_era5
+if not radiosonde_frames or not era5_frames:
+    raise RuntimeError(
+        "No paired radiosonde/ERA5 " + config.type
+        + " analysis files were found for " + str(year)
+    )
 
-
+df_radiosonde = pd.concat(radiosonde_frames, ignore_index=False).reindex(columns=month_columns)
+df_era5 = pd.concat(era5_frames, ignore_index=False).reindex(columns=month_columns)
+df_error = df_radiosonde - df_era5
+stations_df = stations_df.loc[df_radiosonde.index]
 print(df_error)
 print(colored(df_era5,"yellow"))
 print(colored(df_radiosonde, "cyan"))
@@ -209,8 +223,12 @@ print(stations_df_era5_lat_means)
 
 # =======================================
 # Plotting
-output_folder = 'Pictures/ERA5_vs_Radiosonde_trends'
+output_folder = os.path.join(
+    'Pictures', 'ERA5_vs_Radiosonde_trends', str(year), config.type
+)
 os.makedirs(output_folder, exist_ok=True)
+level_label = "Altitude-based" if config.type == "ALT" else "Pressure-level-based"
+output_prefix = "era5-vs-radiosonde-" + config.type.lower() + "-" + str(year)
 # =======================================
 # Plotting
 # Plot individual monthly latitude comparison plots and save them
@@ -219,14 +237,14 @@ for month in range(1, 13):
     plt.plot(stations_df_radiosonde_lat_means[month], stations_df_radiosonde_lat_means.index, color="blue", label="Radiosonde")
     plt.plot(stations_df_era5_lat_means[month], stations_df_era5_lat_means.index, color="red", label="ERA5")
     plt.plot(stations_df_error_lat_means[month], stations_df_error_lat_means.index, color="black", label="ERROR")
-    plt.title(f"Opposing Wind Probabilities by Latitude for Month {month}")
+    plt.title(f"{level_label} Opposing Wind Probabilities by Latitude, Month {month}")
     plt.ylabel("Latitude")
     plt.xlabel("Opposing Wind Probability")
     plt.legend()
     plt.tight_layout()
 
     # Save the figure with month number as file name
-    plt.savefig(f"{output_folder}/{month}_Opposing_Wind_Probabilities_by_Latitude.png")
+    plt.savefig(os.path.join(output_folder, output_prefix + f"-month-{month}.png"))
     plt.close()  # Close the figure to avoid display and memory issues
 
 # Annual latitude comparison plot and save it
@@ -240,7 +258,7 @@ plt.legend()
 plt.tight_layout()
 
 # Save the annual plot with month number as file name
-plt.savefig(f"{output_folder}/Annual_Mean_Opposing_Wind_Probabilities_by_Latitude.png")
+plt.savefig(os.path.join(output_folder, output_prefix + "-annual-latitude-means.png"))
 plt.close()
 
 # 3D plot of latitudes with monthly data and save it
@@ -256,10 +274,10 @@ ax.plot(stations_df_radiosonde_lat_means.index, stations_df_radiosonde_lat_means
 ax.set_xlabel("Latitude")
 ax.set_ylabel("Radiosonde Opposing Winds Probabilities")
 ax.set_zlabel("ERA5 Reanalysis Forecast Opposing Winds Probabilities")
-ax.set_title(f"Comparison of Pressure Level Based Opposing Wind Probabilities by Latitude in {year}")
+ax.set_title(f"{level_label} Opposing Wind Probabilities by Latitude in {year}")
 
 ax.legend()
 
 # Save the 3D plot with month number as file name
-plt.savefig(f"{output_folder}/3D_Opposing_Wind_Probabilities_by_Latitude.png")
+plt.savefig(os.path.join(output_folder, output_prefix + "-latitude-3d.png"))
 plt.close()
