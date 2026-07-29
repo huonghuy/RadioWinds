@@ -85,7 +85,9 @@ def determine_wind_statistics(df, min_alt=15000, max_alt=28000, min_pressure=20,
                                                                                                     wind_bins=wind_bins,
                                                                                                     n_sectors=n_sectors,
                                                                                                     speed_threshold=speed_threshold)
-    calm_winds = opposing_wind_wyoming.determine_calm_winds(df, alt_step=alt_step)
+    calm_winds = opposing_wind_wyoming.determine_calm_winds(
+        df, speed_threshold=speed_threshold, alt_step=alt_step
+    )
     full_winds = opposing_wind_wyoming.determine_full_winds(df, wind_bins=wind_bins, speed_threshold=speed_threshold)
 
     if config.logging:
@@ -178,7 +180,7 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
 
         try:
             all_files = os.listdir(data_folder + str(j))
-        except:
+        except OSError:
             print(colored(str(FAA) + " - " + str(WMO) + "/" + str(year) + " Not Downloaded.", "red"))
             return False
             #raise ValueError
@@ -188,9 +190,16 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
         # Will need to check if there is missing data.
         if csv_files:
             for csv in csv_files:
-                df = pd.read_csv(data_folder + str(j) + "/" + csv, index_col = 0)
+                csv_path = data_folder + str(j) + "/" + csv
+                df = pd.read_csv(csv_path, index_col=0)
+                date = utils.sounding_datetime(df, csv_path)
 
                 df.dropna(subset=['direction', 'speed'], how='all', inplace=True)
+
+                if df.empty:
+                    mask = np.full(len(wind_bins), np.nan)
+                    wind_probabilities.loc[date, :] = mask
+                    continue
 
                 wind_bins, opposing_wind_levels = determine_wind_statistics(df, min_alt=min_alt,
                                                                             max_alt=max_alt,
@@ -235,23 +244,16 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
                                 mask[i] = np.NAN
 
                 except Exception as e:
-                    print(colored(
-                        "MASKING EXCEPTION for Station " + str(FAA) + " - " + str(WMO) +
-                        " " + str(year) + "/" + str(j) + " (" + csv + "): " + repr(e),
-                        "yellow"))
+                    raise RuntimeError(
+                        "Unable to mask incomplete sounding for Station " + str(FAA) +
+                        " - " + str(WMO) + " " + str(year) + "/" + str(j) +
+                        " (" + csv + ")"
+                    ) from e
 
-                # Need to check if Dataframe is empty after dropping nan values was done on direction and speed
-                try:
-                    df.time = pd.to_datetime(df['time'])
-                    date = df.time.iat[0]
-                    if config.logging:
-                        print(date)
-                    wind_probabilities.loc[date, :] = mask
-                except Exception as e:
-                    print(colored(
-                        "WIND PROBABILITY ROW EXCEPTION for Station " + str(FAA) + " - " + str(WMO) +
-                        " " + str(year) + "/" + str(j) + " (" + csv + "): " + repr(e),
-                        "yellow"))
+                if config.logging:
+                    print(date)
+                wind_probabilities.loc[date, :] = mask
+
 
         else:
             date = datetime(year, j, 1, 00)  # day and time shouldn't matter
@@ -285,6 +287,7 @@ def anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year, min_alt=15000, max
     """
 
     current_month = None
+    date = None
     full_year_available = era5.model_end_datetime == datetime(year, 12, 31, 12)
 
     analysis_folder = utils.get_analysis_folder(FAA, WMO, year)
@@ -306,6 +309,8 @@ def anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year, min_alt=15000, max
         if current_month is not None and month != current_month:
             if config.logging:
                 print(wind_probabilities)
+            if date is None:
+                raise RuntimeError("ERA5 month rollover occurred before any station row was added")
             save_wind_probabilties(FAA, WMO, wind_probabilities, analysis_folder, date)
             wind_bins, wind_probabilities = reinitializeProbabilities()
 
@@ -313,6 +318,12 @@ def anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year, min_alt=15000, max
         station = era5.get_station(time, lat, lon)
 
         station.dropna(subset=['direction', 'speed'], how='all', inplace=True)
+
+        date = pd.Timestamp(time)
+        if station.empty:
+            mask = np.full(len(wind_bins), np.nan)
+            wind_probabilities.loc[date, :] = mask
+            continue
 
         wind_bins, opposing_wind_levels = determine_wind_statistics(station, min_alt=min_alt, max_alt=max_alt,
                                                                     min_pressure=min_pressure, max_pressure=max_pressure,
@@ -323,17 +334,13 @@ def anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year, min_alt=15000, max
             print("opposing_wind_levels", opposing_wind_levels)
         # there's probably a faster way to do this with numpy.
         # Or maybe I should change the output of opposing_wind_levels?
-        mask = wind_bins
+        mask = wind_bins.copy()
         for k in range(len(mask)):
             if wind_bins[k] in opposing_wind_levels:
                 mask[k] = 1
             else:
                 mask[k] = 0
 
-        # Need to check if Dataframe is empty after dropping nan values was done on direction and speed
-
-        # station.time = station['time']
-        date = station.time.iat[0]
         if config.logging:
             print()
             print(date)
@@ -342,7 +349,7 @@ def anaylze_monthly_data_era5(era5, lat, lon, FAA, WMO, year, min_alt=15000, max
     # No following month exists to trigger the rollover for the last available
     # month. Always flush it, whether it is December in a complete file or a
     # partial month in an in-progress file.
-    if current_month is not None:
+    if current_month is not None and date is not None:
         save_wind_probabilties(FAA, WMO, wind_probabilities, analysis_folder, date)
 
     # All 12 monthly CSVs are now written; mark the station-year complete. era5 has

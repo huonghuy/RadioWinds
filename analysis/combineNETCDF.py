@@ -1,50 +1,84 @@
-'''Combine netcdf files, where the only difference is the variables downloaded. This won't work for different
-coordinate systems.  It may work for different periods of time?
+"""Combine compatible NetCDF files by coordinates.
 
-U-wind, V-wind, and Geopotential are all downloaded seperated for the region, pressure levels, and time period
-of interest.
+Inputs and output are explicit command-line arguments. Datasets without an
+expver coordinate are supported; when it is present, all expver slices are
+collapsed in priority order with expver=1 preferred.
+"""
 
-https://unseen-open.readthedocs.io/_/downloads/en/latest/pdf/
+import argparse
+from pathlib import Path
 
-Recommended,  1 Hemisphere, 1 year, Pressure levels 300-10mb
-
-Additional Info: https://docs.xarray.dev/en/stable/user-guide/dask.html
-'''
-
-import xarray
+import xarray as xr
 from dask.diagnostics import ProgressBar
 
-#print(xarray.__version__)
 
-#ds = xarray.open_mfdataset('forecasts/Western-Hemisphere-2023*.nc', combine='by_coords', chunks={"time": 10}, engine = "netcdf4")
-#ds = xarray.open_mfdataset('Western-Hemisphere-2023*.nc', chunks={"time": 10})
+def collapse_expver(dataset):
+    """Collapse an optional expver dimension, preferring expver=1."""
+    if "expver" not in dataset.dims and "expver" not in dataset.coords:
+        return dataset
 
-x1 = xarray.open_dataset('forecasts/1.nc', chunks={"time": 10}, engine='netcdf4')
-print(x1)
-
-x2 = xarray.open_dataset('forecasts/2.nc', chunks={"time": 10}, engine='netcdf4')
-print(x2)
-
-x3 = xarray.open_dataset('forecasts/3.nc', chunks={"time": 10}, engine='netcdf4')
-print(x3)
-
-#asda
-
-x4 = xarray.combine_by_coords([x1, x2, x3], combine_attrs='drop_conflicts')
-
-print(x4)
-
-#check if expver exists, for latest data:
-x4 = x4.sel(expver=1).combine_first(x4.sel(expver=5))
-print(x4)
+    values = list(dataset["expver"].values)
+    values.sort(key=lambda value: (value != 1, value))
+    collapsed = dataset.sel(expver=values[0], drop=True)
+    for value in values[1:]:
+        collapsed = collapsed.combine_first(
+            dataset.sel(expver=value, drop=True)
+        )
+    return collapsed
 
 
+def combine_netcdf(input_files, output_file, chunk_dim="time", chunk_size=10):
+    """Combine input files and write one NetCDF, closing all datasets afterward."""
+    datasets = []
+    combined = None
+    try:
+        for input_file in input_files:
+            dataset = xr.open_dataset(input_file, engine="netcdf4")
+            if chunk_dim in dataset.dims:
+                dataset = dataset.chunk({chunk_dim: chunk_size})
+            datasets.append(dataset)
 
-#'''
-# This takes about 30 minutes,  creating a 30 gig + file.
-write_job = x4.to_netcdf("forecasts/COMBINED-Western-Hemisphere-2022.nc", compute=False, engine='netcdf4')
-with ProgressBar():
-    print(f"Writing to outfile")
-    write_job.compute()
-print("done")
-#'''
+        combined = xr.combine_by_coords(
+            datasets,
+            combine_attrs="drop_conflicts",
+        )
+        combined = collapse_expver(combined)
+
+        output_path = Path(output_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        write_job = combined.to_netcdf(
+            output_path,
+            compute=False,
+            engine="netcdf4",
+        )
+        with ProgressBar():
+            print(f"Writing {output_path}")
+            write_job.compute()
+    finally:
+        if combined is not None:
+            combined.close()
+        for dataset in datasets:
+            dataset.close()
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("inputs", nargs="+", help="Compatible input NetCDF files")
+    parser.add_argument("-o", "--output", required=True, help="Output NetCDF file")
+    parser.add_argument("--chunk-dim", default="time")
+    parser.add_argument("--chunk-size", type=int, default=10)
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    combine_netcdf(
+        args.inputs,
+        args.output,
+        chunk_dim=args.chunk_dim,
+        chunk_size=args.chunk_size,
+    )
+
+
+if __name__ == "__main__":
+    main()

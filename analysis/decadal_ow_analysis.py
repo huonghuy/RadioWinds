@@ -6,7 +6,6 @@ Soundings data needs to already be downloaded (AnnualWyomingDownload.py) and ana
 '''
 
 import pandas as pd
-import numpy as np
 import os
 import sys
 sys.path.append('../RadioWinds')
@@ -46,8 +45,6 @@ for dir in os.listdir(config.analysis_folder):
     decadal_mean = (
                     # combine dataframes into a single dataframe
                     pd.concat(dfs)
-                    # replace 0 values with nan to exclude them from mean calculation
-                    .replace(0, np.nan)
                     .reset_index()
                     # group by the row within the original dataframe
                     .groupby("index")
@@ -58,8 +55,6 @@ for dir in os.listdir(config.analysis_folder):
     decadal_var = (
         # combine dataframes into a single dataframe
         pd.concat(dfs)
-            # replace 0 values with nan to exclude them from mean calculation
-            .replace(0, np.nan)
             .reset_index()
             # group by the row within the original dataframe
             .groupby("index")["max"]
@@ -89,14 +84,16 @@ for dir in os.listdir(config.analysis_folder):
 
 
     utils.export_colored_dataframes(decadal_mean,
-                                    title = 'Opposing Wind Probabilities MEANS for Station ' + dir + ' for 2015-2025 (' + range_label + ')',
+                                    title = 'Opposing Wind Probabilities MEANS for Station ' + dir +
+                                            ' for ' + config.plot_year_range_label + ' (' + range_label + ')',
                                     path = path,
                                     suffix = 'analysis-wind_probabilities-DECADAL-MEAN',
                                     export_color=False)
 
 
     utils.export_colored_dataframes(decadal_statistics,
-                                    title='Opposing Wind Probabilities Decadal Statistics for Station ' + dir + ' for 2015-2025 (' + range_label + ')',
+                                    title='Opposing Wind Probabilities Decadal Statistics for Station ' + dir +
+                                          ' for ' + config.plot_year_range_label + ' (' + range_label + ')',
                                     path=path,
                                     suffix='analysis-wind_probabilities-DECADAL-STATISTICS',
                                     precision = 2,

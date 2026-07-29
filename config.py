@@ -5,15 +5,15 @@ from datetime import datetime, timedelta
 # ======================= Analysis Settings =======================
 
 type = "ALT"                    # ALT or PRES
-mode = "radiosonde"                   # radiosonde or era5
+mode = "era5"                   # radiosonde or era5
 continent = 'North_America'     # 'All' will download every continent
                                 # Or you can do one at a time: 
                                 # See Radionsonde_Stations_Info/CLEANED/
                                 # May run into rate limits
 mapping_mode = mode             # mode or "diff"
 
-start_year = 2015
-end_year = 2025
+start_year = 2026
+end_year = 2026
 
 # Permit ERA5 files that end before the configured calendar year is complete.
 # The available months (including the final partial month) are exported, but no
@@ -117,7 +117,7 @@ if mode == "era5":
 # ======================= Other ===================================
 
 # Shared inputs used by the standalone plotting scripts.
-plot_station = "SBBV"
+plot_station = "IAD"
 windrose_date = datetime(2023, 10, 25, 12)
 qbo_pressure = 70
 calm_mode = "radiosonde"

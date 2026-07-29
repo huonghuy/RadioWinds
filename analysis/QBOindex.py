@@ -1,26 +1,33 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+from pathlib import Path
 
-import sys
-sys.path.append('../RadioWinds')
-import config
 import glob
 
 import os
+import re
 
 ############################################################
-# Subplot 1
-# First we plot the radiosonde QBO index, taken straight from stations_df_50-stripped.csv"
+# Build the radiosonde QBO index from equatorial 50 hPa zonal winds.
 ############################################################
 
-#df = pd.DataFrame(data)
-df = pd.read_csv('QBO-Decadal-Means/stations_df_50-stripped' + '.csv')
+REPO_ROOT = Path(__file__).resolve().parents[1]
+qbo_input = REPO_ROOT / "QBO-Decadal-Means" / "stations_df_50.csv"
+source_df = pd.read_csv(qbo_input)
 
-# Drop non-numeric columns
-df = df.drop(['index', 'WMO', 'FAA', 'Station_Name', 'Continent', 'ICAO', 'RAOB STATION NAME', 'ST', 'CO', 'EL', 'lat_era5', 'lon_era5'], axis=1)
+latitudes = pd.to_numeric(source_df["lat_era5"], errors="coerce")
+source_df = source_df.loc[latitudes.between(-5, 5)]
 
-# Convert column headers to datetime format
-df.columns = pd.to_datetime(df.columns, format='u_wind_%m_%Y')
+u_wind_columns = [
+    column for column in source_df.columns
+    if re.fullmatch(r"u_wind_[0-9]{1,2}_[0-9]{4}", column)
+]
+if not u_wind_columns:
+    raise ValueError(f"No u_wind_MONTH_YEAR columns found in {qbo_input}")
+
+df = source_df.loc[:, u_wind_columns].apply(pd.to_numeric, errors="coerce")
+df.columns = pd.to_datetime(df.columns, format="u_wind_%m_%Y")
+df = df.reindex(sorted(df.columns), axis=1)
 
 # Concert knots to m-s
 knots2ms = 0.514444
@@ -51,25 +58,34 @@ date_diff = positive_means.index.to_series().diff()
 gaps = date_diff[date_diff > pd.Timedelta(days=31)].index
 
 # Create a function to plot different sections (without connecting the lines between 2 non-continuous data ranges)
-def seperate_colors(means, color = 'blue', label = "East"):
+def seperate_colors(means, color='blue', label="East"):
     positive_means = means
+    if positive_means.empty:
+        return
 
-    # Identify the gaps where the date difference is more than one month
     date_diff = positive_means.index.to_series().diff()
     gaps = date_diff[date_diff > pd.Timedelta(days=31)].index
-
-    positive_date_index = positive_means.index
-
-    # Plot the data segments separately without lines between gaps
     start_idx = positive_means.index[0]
     for gap in gaps:
         start_pos = positive_means.index.get_loc(start_idx)
         end_pos = positive_means.index.get_loc(gap)
-        axs[1].plot(positive_means.index[start_pos:end_pos], positive_means[start_pos:end_pos], color=color, marker='o', label = label)
+        axs[1].plot(
+            positive_means.index[start_pos:end_pos],
+            positive_means.iloc[start_pos:end_pos],
+            color=color,
+            marker='o',
+            label=label,
+        )
         start_idx = gap
+
     start_pos = positive_means.index.get_loc(start_idx)
-    axs[1].plot(positive_means.index[start_pos:], positive_means[start_pos:], color=color,
-             marker='o', label = label)  # Plot the last segment
+    axs[1].plot(
+        positive_means.index[start_pos:],
+        positive_means.iloc[start_pos:],
+        color=color,
+        marker='o',
+        label=label,
+    )
 
 seperate_colors(positive_means, 'blue', "West")
 seperate_colors(abs(negative_means), 'red', "East")
@@ -104,26 +120,37 @@ dfs_total = []
 
 # For Each station directory, concatenate the annual probabilities into a decadal probability dataframe,  Then append the dataframe to the list dfs_total
 for dir in dirs:
-    path = config.analysis_folder + dir # path should be where opposing winds analysis are stored
-    files = glob.glob(os.path.join(path, "*TOTAL.csv"))
+    path = REPO_ROOT / "radiosonde_ANALYSIS_PRES" / dir
+    files = sorted(glob.glob(str(path / "*TOTAL.csv")))
 
     dfs = [] #list of annulal probabilties
 
     # Iterate through each file
     for file_path in files:
+        year_match = re.search(r"analysis_(\d{4})-", os.path.basename(file_path))
+        if year_match is None:
+            print("Skipping annual file with unrecognized year: " + file_path)
+            continue
+
         # Read the file into a DataFrame
         df = pd.read_csv(file_path)
 
         # Set the first column as the index
         df.set_index(df.columns[0], inplace=True)
+        month_index = pd.to_numeric(df.index, errors="coerce")
+        df = df.loc[month_index.notna()].copy()
+        month_index = month_index[month_index.notna()].astype(int)
+        df.index = pd.to_datetime({
+            "year": int(year_match.group(1)),
+            "month": month_index,
+            "day": 1,
+        })
         dfs.append(df)
 
-    dfs = pd.concat(dfs, ignore_index=False) #convert to a decadal df for the station
-
-    # Convert the index value to datetime
-    starting_year = 2012
-    date_index = pd.date_range(start=f'{starting_year}-01-01', periods=len(dfs), freq='MS')
-    dfs.index = date_index
+    if not dfs:
+        print("Skipping " + dir + ": no usable annual probability files")
+        continue
+    dfs = pd.concat(dfs, ignore_index=False).sort_index()
 
     # Added the formatted Decadal station df to a list of stations between -5 and 5 to take the mean of later.
     dfs_total.append(dfs)
@@ -138,6 +165,8 @@ for df in dfs_total:
     column_values.append(df['50.0'])
 
 # Concatenate all selected columns into a single DataFrame and then take the means
+if not column_values:
+    raise RuntimeError("No station probability series were available for QBO analysis")
 combined_df = pd.concat(column_values, axis=1)
 mean_values = combined_df.mean(axis=1)
 
@@ -152,26 +181,39 @@ mean_values.to_csv('mean_values.csv')
 # Similar to subplot 2,  take the average probability for each East/West QBO section and plot the color-coded repeated mean.
 ############################################################
 
-def seperate_colors_means(means, probabilities, color = 'blue', label = "East"):
+def seperate_colors_means(means, probabilities, color='blue', label="East"):
     positive_means = means
+    if positive_means.empty:
+        return
 
-    # Identify the gaps where the date difference is more than one month
     date_diff = positive_means.index.to_series().diff()
     gaps = date_diff[date_diff > pd.Timedelta(days=31)].index
-
-    # Plot the data segments separately without lines between gaps
     start_idx = positive_means.index[0]
+
     for gap in gaps:
         start_pos = positive_means.index.get_loc(start_idx)
         end_pos = positive_means.index.get_loc(gap)
-
-        mean_prob = probabilities[start_idx:gap].mean()
-
-        axs[3].plot(positive_means.index[start_pos:end_pos],[mean_prob] * len(positive_means.index[start_pos:end_pos]), color=color, marker='o', label = label)
+        segment_index = positive_means.index[start_pos:end_pos]
+        mean_prob = probabilities.loc[start_idx:segment_index[-1]].mean()
+        axs[3].plot(
+            segment_index,
+            [mean_prob] * len(segment_index),
+            color=color,
+            marker='o',
+            label=label,
+        )
         start_idx = gap
+
     start_pos = positive_means.index.get_loc(start_idx)
-    axs[3].plot(positive_means.index[start_pos:],[mean_prob] * len(positive_means.index[start_pos:]), color=color,
-             marker='o', label = label)  # Plot the last segment
+    segment_index = positive_means.index[start_pos:]
+    mean_prob = probabilities.loc[start_idx:segment_index[-1]].mean()
+    axs[3].plot(
+        segment_index,
+        [mean_prob] * len(segment_index),
+        color=color,
+        marker='o',
+        label=label,
+    )
 
 
 seperate_colors_means(positive_means, mean_values, 'blue', "West")

@@ -6,6 +6,7 @@ import windrose
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
+from matplotlib import colormaps
 import matplotlib.cm as cm
 from plotting.plot3DWindrose import polar_interpolated_scatter_plot
 import config
@@ -54,7 +55,7 @@ The configurable config parameters that this script relies on are:
 """
 
 
-def determine_calm_winds(df, speed_threshold = 4, alt_step = 500):
+def determine_calm_winds(df, speed_threshold=4, alt_step=500):
     """
         Determine altitude levels with calm winds (withing speed threshold) for an individual sounding.
 
@@ -70,7 +71,7 @@ def determine_calm_winds(df, speed_threshold = 4, alt_step = 500):
         :rtype: [int]
     """
 
-    calm_winds = df[df['speed'] <= config.speed_threshold]
+    calm_winds = df[df['speed'] <= speed_threshold]
     calm_winds = calm_winds.copy()  # this is needed to get rid of the SettingWithCopyWarning
 
     if config.type == "ALT":
@@ -366,8 +367,8 @@ if __name__ == "__main__":
                                     station=station, date=date)
 
     # To plot the sounding datapoints on top of the interpolated plot:
-    viridis = cm.get_cmap('Set1', 1)  # This is just to get red dots
-    polar_interpolated_scatter_plot(df, fig, ax, num_interpolations=1, color=viridis, size=20,
+    red_dots = colormaps["Set1"].resampled(1)
+    polar_interpolated_scatter_plot(df, fig, ax, num_interpolations=1, color=red_dots, size=20,
                                     no_interpolation=True, blowing_to=config.blowing_to, station=station, date=date)
 
     plt.figure()

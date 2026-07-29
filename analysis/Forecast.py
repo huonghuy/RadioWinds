@@ -36,7 +36,6 @@ import pandas as pd
 import netCDF4
 from geographiclib.geodesic import Geodesic
 from pytz import timezone
-from scipy import interpolate
 from scipy.interpolate import CubicSpline
 from termcolor import colored
 
@@ -185,7 +184,13 @@ class Forecast:
         print("Des sim runtime:", self.sim_time, "hours")
         print()
 
-        if not desired_simulation_end_time <= self.model_end_datetime:
+        if self.start_time < self.model_start_datetime:
+            raise ValueError(
+                f"Simulation start time {self.start_time} precedes forecast start "
+                f"time {self.model_start_datetime}."
+            )
+
+        if desired_simulation_end_time > self.model_end_datetime:
             print(colored(
                 f"Desired simulation run time of {self.sim_time} hours is out of "
                 "bounds of downloaded forecast. Check simulation start time "
@@ -574,11 +579,11 @@ class Forecast:
             return [coord['lat'], coord['lon'], x_wind_vel, y_wind_vel,
                     x_wind_vel_old, y_wind_vel_old, bearing,
                     self.lat[lat_idx], self.lon[lon_idx],
-                    self.hgtprs[0, z, lat_idx, lon_idx]]
+                    self.hgtprs[int_hr_idx, z, lat_idx, lon_idx]]
         return [g['lat2'], g['lon2'], x_wind_vel, y_wind_vel,
                 x_wind_vel_old, y_wind_vel_old, bearing,
                 self.lat[lat_idx], self.lon[lon_idx],
-                self.hgtprs[0, z, lat_idx, lon_idx]]
+                self.hgtprs[int_hr_idx, z, lat_idx, lon_idx]]
 
     def close(self):
         """Close the underlying netCDF dataset.

@@ -9,6 +9,7 @@ import concurrent.futures
 from termcolor import colored
 import glob
 import numpy as np
+import re
 
 """
 utils.py contains multiple helper and utility functions that are used across multiple other scripts in RadioWinds.
@@ -132,6 +133,25 @@ def get_analysis_folder(FAA, WMO, year):
 
 def get_data_folder(FAA, WMO, year):
     return config.parent_folder + str(FAA) + " - " + str(WMO) + "/" + str(year) + "/"
+
+
+def sounding_datetime(frame, filename=None):
+    """Return launch time before wind filtering can empty a sounding frame."""
+    if "time" in frame.columns:
+        times = pd.to_datetime(frame["time"], errors="coerce").dropna()
+        if not times.empty:
+            return times.iloc[0]
+
+    if filename is not None:
+        match = re.search(
+            r"-(\d{4})-(\d{1,2})-(\d{1,2})-(\d{1,2})\.csv$",
+            os.path.basename(str(filename)),
+        )
+        if match:
+            year, month, day, hour = map(int, match.groups())
+            return pd.Timestamp(year=year, month=month, day=day, hour=hour)
+
+    raise ValueError("Sounding has no valid launch time in its data or filename")
 
 
 def _numeric_probability_columns(df):
@@ -458,19 +478,12 @@ def run_parallel_analysis(worker, tasks, num_workers=None, initializer=None, ini
 
 # ======================= Hovmoller helpers =======================
 
-def regularize_sounding_grid(df, start_year, end_year):
-    """Add a complete 00/12 UTC grid while preserving off-schedule launches.
+def regularize_sounding_grid(df, start_year, end_year, end_time=None):
+    """Add a 00/12 UTC grid while preserving off-schedule launches.
 
-    Radiosonde stations occasionally report valid launches at other hours. Those
-    observations remain at their actual timestamps; missing standard launches are
-    added as blank rows and no observations are rounded or imputed.
+    By default the grid covers the complete configured year range. ``end_time``
+    can shorten it for an incomplete final year without dropping observations.
     """
-    full_index = pd.date_range(
-        start=pd.Timestamp(start_year, 1, 1, 0),
-        end=pd.Timestamp(end_year, 12, 31, 12),
-        freq="12h",
-    )
-
     result = df.copy()
     result.index = pd.to_datetime(result.index)
     result = result.sort_index()
@@ -488,6 +501,15 @@ def regularize_sounding_grid(df, start_year, end_year):
             f"{out_of_range[:5].tolist()}"
         )
 
+    grid_end = pd.Timestamp(end_year, 12, 31, 12)
+    if end_time is not None:
+        grid_end = pd.Timestamp(end_time)
+        if not range_start <= grid_end < range_end:
+            raise ValueError(
+                f"Grid end {grid_end} falls outside the configured year range"
+            )
+
+    full_index = pd.date_range(start=range_start, end=grid_end, freq="12h")
     return result.reindex(full_index.union(result.index).sort_values())
 
 

@@ -70,46 +70,51 @@ stations_df2 = pd.read_csv('Radiosonde_Stations_Info/CLEANED/' + continent2 + ".
 stations_df = utils.getWorldStations()#stations_df = pd.concat([stations_df, stations_df2])
 #'''
 
-#Generate a new dataframe of montly probaibilties for each station to add to the stations_df. Take the max probability (per alt/pres)
-df_probabilities = pd.DataFrame(columns=[i for i in range(1,12)])
+# Generate monthly maximum probabilities for each available station.
+stations_df = stations_df.loc[~stations_df.index.duplicated(keep="first")].copy()
+month_columns = list(range(1, 13))
+probability_rows = []
+missing_files = 0
+empty_files = 0
 
-for row in stations_df.itertuples(index = 'WMO'):
+for row in stations_df.itertuples(index='WMO'):
     WMO = row.Index
     FAA = row.FAA
-    Name = row.Station_Name
+    file_name = os.path.join(
+        config.analysis_folder,
+        f"{FAA} - {WMO}",
+        f"analysis_{year}-wind_probabilities-TOTAL.csv",
+    )
+    if not os.path.exists(file_name):
+        missing_files += 1
+        continue
 
-    analysis_folder = config.analysis_folder
+    annual = pd.read_csv(file_name, index_col=0).apply(
+        pd.to_numeric, errors="coerce"
+    )
+    annual.index = pd.to_numeric(annual.index, errors="coerce")
+    annual = annual.loc[annual.index.notna()]
+    annual.index = annual.index.astype(int)
 
-    #file_name = analysis_folder[:-14]  + "analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
-    #file_name = analysis_folder + str(FAA) + " - " + str(WMO) + "/analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
-    #file_name = analysis_folder + str(FAA) + " - " + str(WMO) + "/analysis_" + str(year) + '-wind_probabilities-CALM.csv'
-    file_name = analysis_folder + str(FAA) + " - " + str(WMO) + "/analysis_" + str(year) + '-wind_probabilities-TOTAL.csv'
+    monthly_max = annual.max(axis=1, skipna=True).reindex(month_columns)
+    if monthly_max.isna().all():
+        empty_files += 1
+        continue
+    monthly_max.name = WMO
+    probability_rows.append(monthly_max)
 
-    df = pd.read_csv(file_name, index_col=0 )
+if not probability_rows:
+    raise RuntimeError(
+        f"No populated annual probability files found for {year}; "
+        f"{missing_files} were missing and {empty_files} were empty."
+    )
 
-
-    # Opposing Winds
-    #'''
-    df = df.T
-    df = df.apply(['max'])
-    df = df.rename(index={'max': WMO})
-    df.index.set_names('WMO', level=None, inplace=True)
-    #'''
-
-    # Calm Winds
-    '''
-    #Not sure how to get rid of this future warning, So going to leave as is for now
-    #if not df.isnull().values.all(): #to handle deprecation warning
-    df["alt"] = pd.to_numeric(df.idxmax(axis=1))
-    df[df['alt'] < 15] = -99. # remove altitudes under
-    df = df.T
-    df = df.query("index == 'alt'")
-    df = df.rename(index={'alt': WMO})
-    df.index.set_names('WMO', level=None, inplace=True)
-    '''
-
-
-    df_probabilities = pd.concat([df_probabilities, df], ignore_index=False)
+df_probabilities = pd.DataFrame(probability_rows).reindex(columns=month_columns)
+df_probabilities.index.name = "WMO"
+print(
+    f"Loaded {len(df_probabilities)} station files; skipped "
+    f"{missing_files} missing and {empty_files} empty files."
+)
 
 stations_df = stations_df.join(df_probabilities)
 print(stations_df)
@@ -125,7 +130,7 @@ stations_df = utils.convert_stations_coords(stations_df)
 
 
 #Drop any stations that collected no data for the entire year.
-stations_df.dropna(subset=df.columns[-12:], how = 'all', inplace = True)
+stations_df.dropna(subset=month_columns, how='all', inplace=True)
 
 
 

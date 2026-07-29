@@ -30,7 +30,13 @@ def getDecadalMonthlyMeans(FAA, WMO):
 
 
             analysis_folder = utils.get_data_folder(FAA, WMO, year) +suffix
-            files = [f for f in listdir(analysis_folder) if f.endswith(".csv")]
+            if not os.path.isdir(analysis_folder):
+                print(f"Skipping missing sounding month: {FAA} - {WMO}/{year}/{month}")
+                continue
+
+            files = sorted(
+                f for f in listdir(analysis_folder) if f.endswith(".csv")
+            )
             print(files)
             for file in files:
 
@@ -70,8 +76,14 @@ decadal_df = getDecadalMonthlyMeans(FAA, WMO)
 decadal_df = decadal_df.sort_index()
 
 decadal_df.index = pd.to_datetime(decadal_df.index)
-# Preserve every missing 00/12 UTC launch as a blank cell.
-decadal_df = utils.regularize_sounding_grid(decadal_df, config.start_year, config.end_year)
+# Preserve missing 00/12 UTC launches as blank cells, but stop at the latest
+# available sounding instead of extending an incomplete year through December.
+decadal_df = utils.regularize_sounding_grid(
+    decadal_df,
+    config.start_year,
+    config.end_year,
+    end_time=decadal_df.index.max(),
+)
 #decadal_df = (decadal_df.reindex(pd.date_range('2023-01-01', '2023-12-31', freq='D'))
 #      .fillna(np.nan))
 

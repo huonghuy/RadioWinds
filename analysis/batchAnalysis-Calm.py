@@ -55,6 +55,26 @@ def reinitializeProbabilities():
 
     return wind_bins, wind_probabilities
 
+def calm_monthly_path(FAA, WMO, year, month):
+    return os.path.join(
+        utils.get_analysis_folder(FAA, WMO, year),
+        f"{FAA} - {WMO}-{year}-{month}-CALM.csv",
+    )
+
+
+def calm_missing_months(FAA, WMO, year):
+    return [
+        month
+        for month in range(1, 13)
+        if not os.path.exists(calm_monthly_path(FAA, WMO, year, month))
+    ]
+
+
+def calm_monthly_complete(FAA, WMO, year):
+    return not calm_missing_months(FAA, WMO, year)
+
+
+
 
 def determine_wind_statistics(df, min_alt=15000, max_alt=28000, min_pressure=20, max_pressure=125,
                               alt_step=500, n_sectors=16, speed_threshold=2):
@@ -78,7 +98,9 @@ def determine_wind_statistics(df, min_alt=15000, max_alt=28000, min_pressure=20,
         df = df.drop(df[df['pressure'] > max_pressure].index)
 
 
-    calm_winds = opposing_wind_wyoming.determine_calm_winds(df, alt_step=alt_step)
+    calm_winds = opposing_wind_wyoming.determine_calm_winds(
+        df, speed_threshold=speed_threshold, alt_step=alt_step
+    )
 
     if config.logging:
         if len(calm_winds) != 0:
@@ -137,19 +159,21 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
     analysis_folder = utils.get_analysis_folder(FAA, WMO, year)
 
     # Check if monthly sounding data has already been analyzed.  If so, skip
-    if utils.check_analyzed(FAA, WMO, year,
-                            path=utils.get_analysis_folder(FAA, WMO, year),
-                            category="monthly"):
+    if calm_monthly_complete(FAA, WMO, year):
+        print(colored(
+            f"{FAA}-{WMO}/{year} monthly CALM data already analyzed.",
+            "green",
+        ))
         return True
 
     # Iterate by month and day for a particular year.
-    for j in range (1,12+1):
+    for j in calm_missing_months(FAA, WMO, year):
         # Reinitialize dataframes
         wind_bins, wind_probabilities = reinitializeProbabilities()
 
         try:
             all_files = os.listdir(data_folder + str(j))
-        except:
+        except OSError:
             print(colored(str(FAA) + " - " + str(WMO) + "/" + str(year) + " Not Downloaded.", "red"))
             return False
             #raise ValueError
@@ -159,37 +183,25 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
         # Will need to check if there is missing data.
         if csv_files:
             for csv in csv_files:
-                df = pd.read_csv(data_folder + str(j) + "/" + csv, index_col = 0)
-
+                csv_path = data_folder + str(j) + "/" + csv
+                df = pd.read_csv(csv_path, index_col=0)
+                date = utils.sounding_datetime(df, csv_path)
                 df.dropna(subset=['direction', 'speed'], how='all', inplace=True)
 
-                wind_bins, opposing_wind_levels = determine_wind_statistics(df, min_alt=min_alt,
-                                                                            max_alt=max_alt,
-                                                                            min_pressure=min_pressure,
-                                                                            max_pressure=max_pressure,
-                                                                            alt_step=alt_step,
-                                                                            n_sectors=n_sectors,
-                                                                            speed_threshold=speed_threshold)
+                if df.empty:
+                    mask = np.full(len(wind_bins), np.nan)
+                else:
+                    wind_bins, calm_wind_levels = determine_wind_statistics(
+                        df, min_alt=min_alt, max_alt=max_alt,
+                        min_pressure=min_pressure, max_pressure=max_pressure,
+                        alt_step=alt_step, n_sectors=n_sectors,
+                        speed_threshold=speed_threshold,
+                    )
+                    mask = np.isin(wind_bins, calm_wind_levels).astype(float)
 
-                # There's probably a faster way to do this with numpy.
-                # Or maybe I should change the output of opposing_wind_levels?
-                mask = wind_bins
-                for k in range(len(mask)):
-                    if wind_bins[k] in opposing_wind_levels:
-                        mask[k] = 1
-                    else:
-                        mask[k] = 0
-
-                # Need to check if Dataframe is empty after dropping nan values was done on direction and speed
-                try:
-                    df.time = pd.to_datetime(df['time'])
-                    date = df.time.iat[0]
-                    if config.logging:
-                        print(date)
-                    wind_probabilities.loc[date, :] = mask
-                except:
-                    print(colored("GOT AN EXCEPTION", "yellow"))
-                    pass
+                if config.logging:
+                    print(date)
+                wind_probabilities.loc[date, :] = mask
 
         else:
             date = datetime(year, j, 1, 00)  # day and time shouldn't matter
@@ -222,7 +234,11 @@ def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
 
     analysis_folder = utils.get_analysis_folder(FAA, WMO, year)
 
-    files = [f for f in listdir(analysis_folder) if f.endswith(".csv")]
+    files = sorted(
+        f for f in listdir(analysis_folder)
+        if f.startswith(f"{FAA} - {WMO}-{year}-")
+        and f.endswith("-CALM.csv")
+    )
 
     wind_bins, annual_probabilities = reinitializeProbabilities()
 
@@ -232,12 +248,21 @@ def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
         try:
             df = pd.read_csv(analysis_folder + csv, index_col=0)
 
+            if set(df.columns) != set(annual_probabilities.columns):
+                raise ValueError(
+                    f"Unexpected CALM columns in {analysis_folder + csv}: "
+                    f"{list(df.columns)}"
+                )
+            df = df.reindex(columns=annual_probabilities.columns)
+
             str_date = df.iloc[0:1].index.values[0]
             date = datetime.strptime(str_date, '%Y-%m-%d %H:%M:%S')
 
             annual_probabilities.loc[date.month, :] = df.iloc[-1:].values
-        except:
-            continue
+        except Exception as exc:
+            raise RuntimeError(
+                f"Unable to aggregate CALM file {analysis_folder + csv}"
+            ) from exc
 
     annual_probabilities.sort_index(inplace=True, ascending=True)
     print(annual_probabilities)
@@ -271,10 +296,14 @@ def batch_analysis(year, WMO, FAA, lat, lon, min_alt, max_alt,
                                                       speed_threshold=speed_threshold)
 
     # Check if Annual Data for a station and year has already been analyzed by checking if the directory exists.
-    annual_analyzed_status = utils.check_analyzed(FAA, WMO, year,
-                                                  path=utils.get_analysis_folder(FAA, WMO, year)[:-14] + "analysis_" +
-                                                                                 str(year) + '-wind_probabilities-CALM.csv',
-                                                  category="annual")
+    annual_path = os.path.join(
+        config.analysis_folder,
+        f"{FAA} - {WMO}",
+        f"analysis_{year}-wind_probabilities-CALM.csv",
+    )
+    annual_analyzed_status = utils.check_analyzed(
+        FAA, WMO, year, path=annual_path, category="annual"
+    )
 
     if not annual_analyzed_status and monthly_analyzed_status:
         analyze_annual_data(FAA, WMO, year, min_alt=min_alt, max_alt=max_alt, min_pressure=min_pressure,
@@ -378,7 +407,7 @@ if __name__ == "__main__":
                 "============================================================================================\n",
                 "cyan"))
             for row in stations_df.itertuples(index=False):
-                batch_analysis(era5, year,
+                batch_analysis(year,
                         WMO=row.WMO,
                         FAA=row.FAA,
                         lat=row.lat_era5,

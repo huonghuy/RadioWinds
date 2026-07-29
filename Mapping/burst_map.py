@@ -184,7 +184,7 @@ zi = griddata(points,values,(grid_x, grid_y),method=method)
 #extent = [-125 , -70, 20, 50]
 
 # Western Hemisphere
-extent = [-170, -20, -25, 40]
+#extent = [-170, -20, -25, 40]
 
 # World
 extent = [-180, 180, -90, 90]

@@ -10,7 +10,6 @@ import traceback
 # RadioWinds Imports
 import config
 import utils
-from analysis import opposing_wind_wyoming
 
 """
 
@@ -155,7 +154,7 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
 
         try:
             all_files = os.listdir(data_folder + str(j))
-        except:
+        except OSError:
             print(colored(str(FAA) + " - " + str(WMO) + "/" + str(year) + " Not Downloaded.", "red"))
             return False
             #raise ValueError
@@ -165,26 +164,16 @@ def anaylze_monthly_data(FAA, WMO, year, min_alt=15000, max_alt=28000, min_press
         # Will need to check if there is missing data.
         if csv_files:
             for csv in csv_files:
-                df = pd.read_csv(data_folder + str(j) + "/" + csv, index_col = 0)
+                csv_path = data_folder + str(j) + "/" + csv
+                df = pd.read_csv(csv_path, index_col=0)
+                date = utils.sounding_datetime(df, csv_path)
 
-                #df.dropna(subset=['direction', 'speed'], how='all', inplace=True)
-
-                #wind_probabilities.loc[0] = df['height'].max()
-
-
-                # Need to check if Dataframe is empty after dropping nan values was done on direction and speed
-                try:
-                    df.time = pd.to_datetime(df['time'])
-                    date = df.time.iat[0]
-                    if config.logging:
-                        print(date)
-                    wind_probabilities.loc[date, "Burst"] = df['height'].max()
-                except:
-                    print(colored("GOT AN EXCEPTION", "yellow"))
-                    pass
+                if config.logging:
+                    print(date)
+                wind_probabilities.loc[date, "Burst"] = df['height'].max()
 
         else:
-            wind_probabilities.loc[date, :] = np.NAN
+            wind_probabilities.loc[date, :] = np.nan
 
             if config.logging:
                 print(wind_probabilities)
@@ -211,7 +200,11 @@ def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
 
     analysis_folder = utils.get_analysis_folder(FAA, WMO, year)
 
-    files = [f for f in listdir(analysis_folder) if f.endswith("-BURST.csv")]
+    files = sorted(
+        f for f in listdir(analysis_folder)
+        if f.startswith(f"{FAA} - {WMO}-{year}-")
+        and f.endswith("-BURST.csv")
+    )
 
     annual_probabilities = reinitializeProbabilities()
 
@@ -221,12 +214,20 @@ def analyze_annual_data(FAA, WMO, year, min_alt=15000, max_alt=28000,
         try:
             df = pd.read_csv(analysis_folder + csv, index_col=0)
 
+            if list(df.columns) != ["Burst"]:
+                raise ValueError(
+                    f"Unexpected BURST columns in {analysis_folder + csv}: "
+                    f"{list(df.columns)}"
+                )
+
             str_date = df.iloc[0:1].index.values[0]
             date = datetime.strptime(str_date, '%Y-%m-%d %H:%M:%S')
 
             annual_probabilities.loc[date.month, :] = df.iloc[-1:].values
-        except:
-            continue
+        except Exception as exc:
+            raise RuntimeError(
+                f"Unable to aggregate BURST file {analysis_folder + csv}"
+            ) from exc
 
     annual_probabilities.sort_index(inplace=True, ascending=True)
     print(annual_probabilities)

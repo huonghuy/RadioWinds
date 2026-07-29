@@ -1,12 +1,10 @@
 import cartopy.crs as ccrs
-import cartopy.io
 import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
 import pandas as pd
 import numpy as np
 import cartopy.feature as cfeature
 from scipy.interpolate import griddata
-import calendar
 import sys
 sys.path.insert(0, sys.path[0] + '/../') #add config from 1 directory up.
 import os

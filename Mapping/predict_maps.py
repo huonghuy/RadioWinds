@@ -1,7 +1,5 @@
 import cartopy.crs as ccrs
-import cartopy.io
 import matplotlib.pyplot as plt
-import matplotlib.colors as colors
 import pandas as pd
 import numpy as np
 import cartopy.feature as cfeature
@@ -98,15 +96,28 @@ for row in stations_df.itertuples(index = 'WMO'):
     #(radiosonde +.01)/(difference+.01) #make sure it's never 0.  Values should never be over 101?
 
     if config.mapping_mode == "radiosonde":
-        df = pd.read_csv(radiosonde_path, index_col=0)
+        df = pd.read_csv(radiosonde_path, index_col=0).apply(
+            pd.to_numeric, errors="coerce"
+        )
     elif config.mapping_mode == "era5":
-        df = pd.read_csv(era5_path, index_col=0)
+        df = pd.read_csv(era5_path, index_col=0).apply(
+            pd.to_numeric, errors="coerce"
+        )
     elif config.mapping_mode == "diff":
-        radiosonde = pd.read_csv(radiosonde_path, index_col=0)
-        era5 = pd.read_csv(era5_path, index_col=0)
+        radiosonde = pd.read_csv(radiosonde_path, index_col=0).apply(
+            pd.to_numeric, errors="coerce"
+        )
+        era5 = pd.read_csv(era5_path, index_col=0).apply(
+            pd.to_numeric, errors="coerce"
+        )
+        radiosonde, era5 = radiosonde.align(era5, join="inner")
         df = radiosonde - era5
     else:
         raise ValueError("Unsupported mapping_mode: " + str(config.mapping_mode))
+
+    df.index = pd.to_numeric(df.index, errors="coerce")
+    df = df.loc[df.index.notna()]
+    df.index = df.index.astype(int)
 
 
     print(df)
@@ -147,12 +158,22 @@ stations_df.dropna(subset=month_columns, how='all', inplace=True)
 # Make a new plot for each month
 for month in range (1,12+1):
     #stations_df.dropna(subset=[month], inplace = True)
-    values = stations_df.loc[:,month].to_numpy()
-    lonlat = stations_df[[' LONG','  LAT']]
-    points = lonlat.to_numpy()
+    values = pd.to_numeric(stations_df.loc[:, month], errors="coerce").to_numpy()
+    lonlat = stations_df[[' LONG', '  LAT']].apply(
+        pd.to_numeric, errors="coerce"
+    )
+    valid = (
+        np.isfinite(values)
+        & np.isfinite(lonlat[' LONG'].to_numpy())
+        & np.isfinite(lonlat['  LAT'].to_numpy())
+    )
+    if valid.sum() < 3:
+        print("Skipping month " + str(month) + ": not enough valid stations")
+        continue
 
-    #zi = griddata(points,values,(grid_x, grid_y),method='linear', fill_value=0)
-    zi = griddata(points,values,(grid_x, grid_y),method=method)
+    values = values[valid]
+    points = lonlat.loc[valid].to_numpy()
+    zi = griddata(points, values, (grid_x, grid_y), method=method)
 
     #print(zi.shape)
     #print(zi)
@@ -224,4 +245,5 @@ for month in range (1,12+1):
         os.makedirs(path)
 
     plt.savefig(path +"/" +  prefix + "_" + config.mode + "_" + config.type+ "_" + str(year) + '-' + str(month))
+    plt.close(fig)
     #plt.show()

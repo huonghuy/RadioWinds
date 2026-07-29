@@ -12,10 +12,8 @@ NOTE: THIS PROGRAM ASSUMES ALL RADIOSONDES HAVE BEEN DOWNLOADED IN THE
  This script has a significant runtime, especially if many stations are being analyzed.
  '''
 
-'''
-python -m analysis.analyzeMonthlyMeans-Zonal-QBO
-python -m plotting.hovmoller_qbo
-'''
+# Run with: python -m analysis.analyzeMonthlyMeans-Zonal-QBO
+# Then:     python -m plotting.hovmoller_qbo
 import pandas as pd
 import config
 import concurrent.futures
@@ -23,7 +21,7 @@ import os
 from termcolor import colored
 
 #CONFIGURATION:
-pres = 70
+pres = 50
 
 #------------------------------
 

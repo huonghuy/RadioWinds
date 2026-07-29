@@ -28,7 +28,6 @@ import sys
 import cdsapi
 import glob
 import subprocess
-import shutil
 
 # ---------------------------------------------------------------------------
 # CONFIG — edit these, then run the file.
